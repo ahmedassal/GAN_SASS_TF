@@ -17,4 +17,7 @@ FLOATX = 'float32'  # default type for float
 
 # automatically derived constants
 # DO NOT CHANGE unless you know what you are doing
-FFT_NDIM = FFT_SIZE + 1
+# <empty for now>
+
+# assert regarding hyperparameters
+assert FFT_SIZE&1 == 0
