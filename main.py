@@ -7,6 +7,7 @@ from __future__ import print_function
 from __future__ import absolute_import
 from __future__ import division
 import os
+import pdb
 
 import numpy as np
 import tensorflow as tf
@@ -100,7 +101,7 @@ class Separator(ModelModule):
             tf.expand_dims(s_norms, axis=2),
             tf.expand_dims(s_norms, axis=1))
         s_cosines = tf.matmul(s_embeds, tf.transpose(s_embeds, [0, 2, 1]))
-        return - s_cosines / (s_norms_outer + hparams.EPS)
+        return - tf.square(s_cosines / (s_norms_outer + hparams.EPS))
 
     def __call__(self, s_signals):
         '''
@@ -112,7 +113,7 @@ class Separator(ModelModule):
         Returns:
             batched dissimilarity matrices [batch_size, n_signal, n_signal]
         '''
-        with tf.name_scope(self.name, reuse=True):
+        with tf.name_scope(self.name):
             s_embeds = self._get_embedding(s_signals)
             s_dismat = Separator._embedding_to_dismat(s_embeds)
         return s_dismat
@@ -125,23 +126,44 @@ class Recognizer(ModelModule):
     def __init__(self, model, name):
         pass
 
-    def __call__(self):
+    def __call__(self, s_signals):
+        '''
+        Args:
+            s_signals: tensor variable
+                [batch_size, n_signal, length, fft_size]
+
+        Returns:
+            logits, tensor variable of shape:
+            [batch_size, n_signal, out_length, charset_size]
+
+            perform argmax on last axis to obtain symbol idx
+        '''
         pass
 
 
 class Discriminator(ModelModule):
     '''
-    feed audio signal, output scalar within [0., 1.]
+    Feed audio signal, optionally with text, output scalar within [0., 1.]
     '''
-    use_text = True  # whether this discriminator takes text as input
-    def __init__(self, model):
-        pass
+    def __init__(self, model, name):
+        self.name = name
 
     def __call__(self, s_signals, s_texts):
-        '''TODO docs'''
-        pass
+        '''
+        Args:
+            s_signals: tensor variable
+                shape: [batch_size, n_signal, length, fft_size]
+
+            s_texts: tensor variable
+                shape: [batch_size, n_signal, text_length, charset_size]
+
+        Returns:
+            tensor variable of shape [batch_size, n_signal]
+        '''
+        raise NotImplementedError()
 
 
+@hparams.register_extractor('toy')
 class ToyExtractor(Extractor):
     '''
     Minimal separator for debugging purposes
@@ -156,9 +178,9 @@ class ToyExtractor(Extractor):
     def __call__(self, s_input):
         inp_shape = s_input.get_shape().as_list()
         out_shape = inp_shape.copy()
-        out_shape.insert(self.n_signal, 1)
+        out_shape.insert(1, self.n_signal)
         fft_size = inp_shape[-1]
-        with tf.variable_scope(self.name):
+        with tf.name_scope(self.name):
             s_mid = ops.lyr_linear(
                 'linear0', s_input, fft_size*2, axis=-1)
             s_mid = ops.relu(s_mid, hparams.RELU_LEAKAGE)
@@ -169,6 +191,7 @@ class ToyExtractor(Extractor):
         return s_output
 
 
+@hparams.register_separator('toy')
 class ToySeparator(Separator):
     '''
     This separator is a 3 layer MLP for debugging purposes
@@ -195,16 +218,64 @@ class ToySeparator(Separator):
         return s_output
 
 
+@hparams.register_recognizer('toy')
+class ToyRecognizer(Recognizer):
+    '''
+    Toy recognizer for debugging purposes
+
+    This always output max-text-length logits sequence using 3-layer MLP
+    '''
+    def __init__(self, model, name):
+        self.name = name
+
+    def __call__(self, s_signals):
+        inp_shape = s_signals.get_shape().as_list()
+        fft_size = inp_shape[-1]
+        charset_size = hparams.CHARSET_SIZE
+        text_length = hparams.MAX_TEXT_LENGTH
+
+        out_shape = inp_shape.copy()
+        out_shape[-1] = charset_size
+        out_shape[-2] = text_length
+
+        with tf.name_scope(self.name):
+            s_mean = tf.reduce_mean(s_signals, axis=-2)
+            s_mid = ops.lyr_linear('linear0', s_mean, fft_size*2, axis=-1)
+            s_mid = ops.relu(s_mid, hparams.RELU_LEAKAGE)
+            s_logits = ops.lyr_linear(
+                'linear1', s_mid, charset_size*text_length, axis=-1)
+            s_logits = tf.reshape(s_logits, out_shape)
+        return s_logits
+
+
+@hparams.register_discriminator('toy')
 class ToyDiscriminator(Discriminator):
     '''
     This Discriminator is for debugging purposes.
     '''
-    use_text = False
     def __init__(self, model, name):
         self.name = name
 
-    def __call__(self, s_signals, s_texts=False):
-        pass
+    def __call__(self, s_signals, s_texts=None):
+        with tf.name_scope(self.name):
+            s_signals_mean = tf.reduce_mean(s_signals, axis=-2)
+            if s_texts is not None:
+                s_texts_mean = tf.reduce_mean(s_texts, axis=-2)
+                s_input = tf.concat(
+                    [s_signals_mean, s_texts_mean], axis=-1)
+            else:
+                s_input = s_signals_mean
+            inp_shape = s_input.get_shape().as_list()
+            inp_ndim = inp_shape[-1]
+            n_signal = inp_shape[1]
+
+            s_input = tf.reshape(s_input, inp_shape)
+            s_mid = ops.lyr_linear('linear0', s_input, inp_ndim*2, axis=-1)
+            s_mid = ops.relu(s_mid, hparams.RELU_LEAKAGE)
+            s_output = ops.lyr_linear('linear1', s_mid, n_signal, axis=-1)
+            s_output = tf.sigmoid(s_output)
+        return s_output
+
 
 class Model(object):
     '''
@@ -242,18 +313,73 @@ class Model(object):
         print('[*] Read {}'.format(ckpt_name))
         return True
 
-    def build():
-        # TODO
-        pass
+    def build(self):
 
-    def train():
+        # create sub-modules
+        extractor = hparams.get_extractor()(
+            self, 'extractor', n_signal=hparams.MAX_N_SIGNAL)
+        separator = hparams.get_separator()(
+            self, 'separator')
+        recognizer = hparams.get_recognizer()(
+            self, 'recognizer')
+        discriminator = hparams.get_discriminator()(
+            self, 'discriminator')
+
+        input_shape = [
+            hparams.BATCH_SIZE,
+            hparams.MAX_N_SIGNAL,
+            hparams.SIGNAL_LENGTH,
+            hparams.FFT_SIZE]
+        input_text_shape = [
+            hparams.BATCH_SIZE,
+            hparams.MAX_N_SIGNAL,
+            hparams.MAX_TEXT_LENGTH]
+        single_signal_shape = input_shape.copy()
+        del(single_signal_shape[1])
+
+        s_source_signals = tf.placeholder(
+            hparams.FLOATX,
+            input_shape,
+            name='source_signal')
+        s_source_texts = tf.placeholder(
+            hparams.INTX,
+            input_text_shape,
+            name='source_text'
+        )
+        with tf.name_scope('G'):
+            s_texts = tf.one_hot(
+                s_source_texts, hparams.CHARSET_SIZE, dtype=hparams.FLOATX)
+            # TODO add mixing coeff ?
+            s_noise_signal = tf.random_normal(
+                single_signal_shape,
+                stddev=0.1,
+                dtype=hparams.FLOATX)
+            s_mixed_signals = tf.reduce_sum(s_source_signals, axis=1) + s_noise_signal
+            s_extracted_signals = extractor(s_mixed_signals)
+            s_dismat = separator(s_extracted_signals)
+            # since we use l2-normalized vector to get dismat
+            # diagonal element does not matter
+            s_dissimilarity_loss = tf.reduce_mean(
+                tf.square(tf.reduce_sum(s_dismat, axis=[1, 2])))
+            s_predicted_texts = recognizer(s_extracted_signals)
+
+
+        with tf.name_scope('D'):
+            s_all_signals = tf.concat(
+                [s_source_signals, s_extracted_signals], axis=1)
+            s_all_texts = tf.concat(
+                [s_texts, tf.nn.softmax(s_predicted_texts)], axis=1)
+            s_truefalse = discriminator(s_all_signals, s_all_texts)
+
+    def train(self):
         # TODO
         pass
 
 if __name__ == '__main__':
     # TODO parse cmd args
     # TODO manage device
-    # TODO build model
+    model = Model()
+    model.build()
     # TODO train or inference
     # TODO write summary file
     pass
