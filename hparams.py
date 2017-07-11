@@ -23,9 +23,14 @@ SEPARATOR_TYPE = 'toy'
 RECOGNIZER_TYPE = 'toy'
 DISCRIMINATOR_TYPE = 'toy'
 
+# TODO add ADAM and other ozers
 OPTIMIZER_TYPE = 'sgd'
 LR = 1e-4  # learn rate
 LR_DECAY = None
+
+DATASET_TYPE = 'toy'
+
+SUMMARY_DIR = './logs'
 
 
 # normally you don't need touch anything below if you just want to tweak
@@ -37,6 +42,7 @@ separator_registry = {}
 recognizer_registry = {}
 discriminator_registry = {}
 ozer_registry = {}
+dataset_registry = {}
 
 # decorators & getters
 def register_extractor(name):
@@ -71,7 +77,6 @@ def register_recognizer(name):
 def get_recognizer():
     return recognizer_registry[RECOGNIZER_TYPE]
 
-
 def register_discriminator(name):
     def wrapper(cls):
         discriminator_registry[name] = cls
@@ -82,11 +87,24 @@ def register_discriminator(name):
 def get_discriminator():
     return discriminator_registry[DISCRIMINATOR_TYPE]
 
+
 def register_optimizer(name):
     def wrapper(fn):
         ozer_registry[name] = fn
         return fn
     return wrapper
 
+
 def get_optimizer():
     return ozer_registry[OPTIMIZER_TYPE]
+
+
+def register_dataset(name):
+    def wrapper(fn):
+        dataset_registry[name] = fn
+        return fn
+    return wrapper
+
+
+def get_dataset():
+    return dataset_registry[DATASET_TYPE]

@@ -6,13 +6,14 @@ TODO docs
 from __future__ import print_function
 from __future__ import absolute_import
 from __future__ import division
+from sys import stdout
 import os
 import pdb
 
 import numpy as np
 import tensorflow as tf
 
-import hparams, ozers, ops
+import hparams, dataset, ozers, ops
 
 
 # Global vars
@@ -314,7 +315,6 @@ class Model(object):
         return True
 
     def build(self):
-
         # create sub-modules
         extractor = hparams.get_extractor()(
             self, 'extractor', n_signal=hparams.MAX_N_SIGNAL)
@@ -379,6 +379,16 @@ class Model(object):
                     dtype=hparams.FLOATX)], axis=-1)
             s_gan_loss = tf.reduce_mean(s_guess - s_truth, axis=None)
 
+        # prepare summary
+        # TODO add impl & summary for word error rate
+        # TODO add impl & summary for SNR
+
+        with tf.name_scope('summary'):
+            tf.summary.scalar('similarity', s_dissim_loss)
+            tf.summary.scalar('gan_loss', s_gan_loss)
+
+
+        # apply optimizer
         ozer = hparams.get_optimizer()(learn_rate=hparams.LR)
 
         v_params_li = tf.trainable_variables()
@@ -389,29 +399,53 @@ class Model(object):
             s_dissim_loss - s_gan_loss, var_list=s_gparams_li)
         op_fit_discriminator = ozer.minimize(
             s_gan_loss, var_list=s_dparams_li)
+        self.op_init_params = tf.variables_initializer(v_params_li)
 
-        self.feeds = [s_source_signals, s_source_texts]
+        self.all_summary = tf.summary.merge_all()
+        self.feed_keys = [s_source_signals, s_source_texts]
         self.train_fetches = [
-            dict(gan_loss=s_gan_loss, dissim_loss=s_dissim_loss),
-            op_fit_generator, op_fit_discriminator]
+            self.all_summary, op_fit_generator, op_fit_discriminator]
 
         self.infer_fetches = [dict(
             signals=s_extracted_signals,
             texts=s_predicted_texts)]
 
+
     def train(self, n_epoch, dataset=None):
-        pass
+        train_writer = tf.summary.FileWriter(hparams.SUMMARY_DIR, g_sess.graph)
+        for i_epoch in range(n_epoch):
+            for data_pt in dataset.epoch('train', hparams.BATCH_SIZE):
+                to_feed = dict(zip(self.feed_keys, data_pt))
+                step_summary = g_sess.run(self.train_fetches, to_feed)[0]
+                train_writer.add_summary(step_summary)
+                print('.', end='')
+                stdout.flush()
+            print('\n')
+            stdout.flush()
 
     def reset(self):
         '''re-initialize parameters, resets timestep'''
-        # TODO
-        pass
+        g_sess.run([self.op_init_params])
+
 
 if __name__ == '__main__':
     # TODO parse cmd args
     # TODO manage device
+    print('Preparing dataset ... ', end='')
+    stdout.flush()
+    dataset = hparams.get_dataset()()
+    dataset.install_and_load()
+    print('done')
+    stdout.flush()
+
+    print('Building model ... ', end='')
     model = Model()
     model.build()
-    # TODO train or inference
+    print('done')
+    stdout.flush()
+    model.reset()
+    model.train(n_epoch=10, dataset=dataset)
+
+    # TODO inference
     # TODO write summary file
     pass
