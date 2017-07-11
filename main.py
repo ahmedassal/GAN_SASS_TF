@@ -267,12 +267,12 @@ class ToyDiscriminator(Discriminator):
                 s_input = s_signals_mean
             inp_shape = s_input.get_shape().as_list()
             inp_ndim = inp_shape[-1]
-            n_signal = inp_shape[1]
 
             s_input = tf.reshape(s_input, inp_shape)
             s_mid = ops.lyr_linear('linear0', s_input, inp_ndim*2, axis=-1)
             s_mid = ops.relu(s_mid, hparams.RELU_LEAKAGE)
-            s_output = ops.lyr_linear('linear1', s_mid, n_signal, axis=-1)
+            s_output = ops.lyr_linear('linear1', s_mid, 1, axis=-1)
+            s_output = tf.squeeze(s_output)
             s_output = tf.sigmoid(s_output)
         return s_output
 
@@ -379,7 +379,7 @@ class Model(object):
                     dtype=hparams.FLOATX)], axis=-1)
             s_gan_loss = tf.reduce_mean(s_guess - s_truth, axis=None)
 
-        ozer = hparams.get_optimizer()
+        ozer = hparams.get_optimizer()(learn_rate=hparams.LR)
 
         v_params_li = tf.trainable_variables()
         s_gparams_li = [v for v in v_params_li if v.name.startswith('G/')]
