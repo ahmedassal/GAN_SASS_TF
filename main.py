@@ -12,7 +12,7 @@ import pdb
 import numpy as np
 import tensorflow as tf
 
-import hparams, ops
+import hparams, ozers, ops
 
 
 # Global vars
@@ -354,24 +354,56 @@ class Model(object):
                 single_signal_shape,
                 stddev=0.1,
                 dtype=hparams.FLOATX)
-            s_mixed_signals = tf.reduce_sum(s_source_signals, axis=1) + s_noise_signal
+            s_mixed_signals = \
+                tf.reduce_sum(s_source_signals, axis=1) + s_noise_signal
             s_extracted_signals = extractor(s_mixed_signals)
             s_dismat = separator(s_extracted_signals)
-            # since we use l2-normalized vector to get dismat
-            # diagonal element does not matter
-            s_dissimilarity_loss = tf.reduce_mean(
+            # since we use L2-normalized vector to get dismat
+            # diagonal elements does not matter (always 1)
+            s_dissim_loss = tf.reduce_mean(
                 tf.square(tf.reduce_sum(s_dismat, axis=[1, 2])))
             s_predicted_texts = recognizer(s_extracted_signals)
-
 
         with tf.name_scope('D'):
             s_all_signals = tf.concat(
                 [s_source_signals, s_extracted_signals], axis=1)
             s_all_texts = tf.concat(
                 [s_texts, tf.nn.softmax(s_predicted_texts)], axis=1)
-            s_truefalse = discriminator(s_all_signals, s_all_texts)
+            s_guess = discriminator(s_all_signals, s_all_texts)
+            s_truth = tf.concat([
+                tf.zeros(
+                    [hparams.BATCH_SIZE, hparams.MAX_N_SIGNAL],
+                    dtype=hparams.FLOATX),
+                tf.ones(
+                    [hparams.BATCH_SIZE, hparams.MAX_N_SIGNAL],
+                    dtype=hparams.FLOATX)], axis=-1)
+            s_gan_loss = tf.reduce_mean(s_guess - s_truth, axis=None)
 
-    def train(self):
+        ozer = hparams.get_optimizer()
+
+        v_params_li = tf.trainable_variables()
+        s_gparams_li = [v for v in v_params_li if v.name.startswith('G/')]
+        s_dparams_li = [v for v in v_params_li if v.name.startswith('D/')]
+
+        op_fit_generator = ozer.minimize(
+            s_dissim_loss - s_gan_loss, var_list=s_gparams_li)
+        op_fit_discriminator = ozer.minimize(
+            s_gan_loss, var_list=s_dparams_li)
+
+        self.feeds = [s_source_signals, s_source_texts]
+        self.train_fetches = [
+            dict(gan_loss=s_gan_loss, dissim_loss=s_dissim_loss),
+            op_fit_generator, op_fit_discriminator]
+
+        self.infer_fetches = [dict(
+            signals=s_extracted_signals,
+            texts=s_predicted_texts)]
+
+    def train(self, n_epoch, dataset=None):
+        pass
+
+    def reset(self):
+        '''re-initialize parameters, resets timestep'''
         # TODO
         pass
 
