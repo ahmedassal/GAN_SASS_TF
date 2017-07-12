@@ -1,0 +1,7 @@
+[global]
+- numpy, scipy
+- tensorflow 1.12+
+
+[TIMIT dataset]
+- install "sndfile-convert" utility
+    sudo apt-get install sndfile-programs
