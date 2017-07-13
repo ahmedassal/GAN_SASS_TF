@@ -6,6 +6,7 @@ TODO docs
 from __future__ import print_function
 from __future__ import absolute_import
 from __future__ import division
+
 from sys import stdout
 import os
 import pdb
@@ -377,7 +378,7 @@ class Model(object):
                 tf.ones(
                     [hparams.BATCH_SIZE, hparams.MAX_N_SIGNAL],
                     dtype=hparams.FLOATX)], axis=-1)
-            s_gan_loss = tf.reduce_mean(s_guess - s_truth, axis=None)
+            s_gan_loss = tf.reduce_mean(tf.sqr(s_guess - s_truth), axis=None)
 
         # prepare summary
         # TODO add impl & summary for word error rate
@@ -428,7 +429,7 @@ class Model(object):
         g_sess.run([self.op_init_params])
 
 
-if __name__ == '__main__':
+def main():
     # TODO parse cmd args
     # TODO manage device
     print('Preparing dataset ... ', end='')
@@ -447,5 +448,7 @@ if __name__ == '__main__':
     model.train(n_epoch=10, dataset=dataset)
 
     # TODO inference
-    # TODO write summary file
-    pass
+
+
+if __name__ == '__main__':
+    main()
