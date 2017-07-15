@@ -1,0 +1,5 @@
+TIMIT dataset
+
+1. put TIMIT.zip here
+2. run install.sh
+3. in root directory, class datasets.TIMIT should be usable

@@ -1,6 +1,7 @@
 import numpy as np
 
-import hparams
+import app.hparams as hparams
+
 
 class Dataset(object):
     def __init__(self):
@@ -28,7 +29,6 @@ class Dataset(object):
             raise RuntimeError is something fails
         '''
         raise NotImplementedError()
-
 
 @hparams.register_dataset('toy')
 class WhiteNoiseData(object):

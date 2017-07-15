@@ -14,7 +14,7 @@ import pdb
 import numpy as np
 import tensorflow as tf
 
-import hparams, datasets, ozers, ops, modules
+from app import *
 
 
 # Global vars

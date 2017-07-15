@@ -6,12 +6,11 @@ import tensorflow as tf
 # as of r1.2
 from tensorflow.contrib.framework import get_name_scope
 
-from hparams import FLOATX
+from app.hparams import FLOATX
 
 
 def lyr_linear(
-        name, s_x,
-        odim,
+        name, s_x, odim,
         axis=-1, bias=True, w_init=None, b_init=None):
     '''
     Like tf.xw_plus_b, but works on arbitrary shape

@@ -1,6 +1,7 @@
 import tensorflow as tf
 
-import hparams, ops
+import app.hparams as hparams
+import app.ops as ops
 
 class ModelModule(object):
     '''

@@ -41,3 +41,7 @@ done
 rm *.WAV
 cd ..
 rm -rf data/
+env python process.py
+rm -rf test/
+rm -rf train/
+echo 'Installation done'
