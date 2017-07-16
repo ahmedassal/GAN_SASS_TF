@@ -5,13 +5,10 @@ hyperparameters
 # Hyperparameters are in CAPS
 # TODO use tf.app.flags to parse hyperparam from input
 #      or consider use json file to store hyperparams
-BATCH_SIZE = 16  # minibatch size
+BATCH_SIZE = 4  # minibatch size
 MAX_N_SIGNAL = 3
-SIGNAL_LENGTH = 512  # length of spectrogram
-MAX_TEXT_LENGTH = 32  # max length of text
 FFT_SIZE = 256  # width of spectrogram
 CHARSET_SIZE = 32  # size of character set, including "end" character
-DISIM_EMBED_DIMS = 32  # embedding dimensions for dissimilarity function
 EPS = 1e-7  # to prevent sqrt() log() etc cause NaN
 RELU_LEAKAGE = 0.3  # how leaky relu is, 0 -> relu, 1 -> linear
 USE_TEXT = False  # whether to integrate speech recognizer into GAN training
@@ -32,6 +29,10 @@ DATASET_TYPE = 'toy'
 
 SUMMARY_DIR = './logs'
 
+CLS_REAL_SIGNAL = 0
+CLS_REAL_NOISE = 1
+CLS_FAKE_SIGNAL = 2
+
 
 # normally you don't need touch anything below if you just want to tweak
 # some hyperparameters
@@ -44,18 +45,8 @@ discriminator_registry = {}
 ozer_registry = {}
 dataset_registry = {}
 
+
 # decorators & getters
-def register_extractor(name):
-    def wrapper(cls):
-        extractor_registry[name] = cls
-        return cls
-    return wrapper
-
-
-def get_extractor():
-    return extractor_registry[EXTRACTOR_TYPE]
-
-
 def register_separator(name):
     def wrapper(cls):
         separator_registry[name] = cls

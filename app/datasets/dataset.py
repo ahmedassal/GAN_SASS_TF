@@ -32,6 +32,12 @@ class Dataset(object):
 
 @hparams.register_dataset('toy')
 class WhiteNoiseData(object):
+    '''
+    this always generates uniform noise
+
+    for signal, it's of length 128
+    for text, it's of length 64
+    '''
     # make it more general, support more shape
     def __init__(self):
         self.is_loaded = False
@@ -41,11 +47,11 @@ class WhiteNoiseData(object):
             signal = np.random.rand(
                 batch_size,
                 hparams.MAX_N_SIGNAL,
-                hparams.SIGNAL_LENGTH,
+                128,
                 hparams.FFT_SIZE)
             text = np.random.randint(
                 0, hparams.CHARSET_SIZE,
-                (batch_size, hparams.MAX_N_SIGNAL, hparams.MAX_TEXT_LENGTH))
+                (batch_size, hparams.MAX_N_SIGNAL, 64))
             yield signal, text
 
     def install_and_load(self):
