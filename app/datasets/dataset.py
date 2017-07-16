@@ -9,7 +9,7 @@ class Dataset(object):
 
     def epoch(self, subset, batch_size):
         '''
-        iterator, yields batches of numpy array
+        Iterator, yields batches of numpy array
         Args:
             subset: string
             batch_size: int
@@ -32,6 +32,7 @@ class Dataset(object):
 
 @hparams.register_dataset('toy')
 class WhiteNoiseData(object):
+    # make it more general, support more shape
     def __init__(self):
         self.is_loaded = False
 

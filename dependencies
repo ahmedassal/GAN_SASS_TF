@@ -1,4 +1,5 @@
-[global]
+[python]
+- six
 - numpy, scipy
 - tensorflow 1.12+
 

@@ -3,6 +3,7 @@ collection of commonly used Ops and layers
 '''
 
 import tensorflow as tf
+# TODO better compat for below import ?
 # as of r1.2
 from tensorflow.contrib.framework import get_name_scope
 
