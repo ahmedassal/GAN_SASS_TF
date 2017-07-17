@@ -18,7 +18,7 @@ INTX = 'int32'  # defualt type for int
 EXTRACTOR_TYPE = 'toy'
 SEPARATOR_TYPE = 'toy'
 RECOGNIZER_TYPE = 'toy'
-DISCRIMINATOR_TYPE = 'toy'
+DISCRIMINATOR_TYPE = 'bilstm-3way-v1'
 
 # TODO add ADAM and other ozers
 OPTIMIZER_TYPE = 'sgd'

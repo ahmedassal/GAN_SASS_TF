@@ -8,6 +8,7 @@ from __future__ import absolute_import
 from __future__ import division
 
 from sys import stdout
+from functools import reduce
 import os
 
 import numpy as np
@@ -36,7 +37,9 @@ def _dict_format(di):
 
 class Model(object):
     '''
-    base class for a full trainable model
+    Base class for a fully trainable model
+
+    Should be singleton
     '''
     def __init__(self, name='BaseModel'):
         self.name = name
@@ -71,23 +74,23 @@ class Model(object):
         assert isinstance(idim, int)
         h_shp = x_shp[1:].copy()
         h_shp[axis-1] = hdim
-        with tf.name_scope(name):
+        with tf.variable_scope(name):
             zero_init = tf.constant_initializer(0.)
             v_cell = tf.get_variable(
                 dtype=hparams.FLOATX,
-                shape=h_shp, name=name+'_cell',
+                shape=h_shp, name='cell',
                 trainable=False,
                 initializer=zero_init)
             v_hid = tf.get_variable(
                 dtype=hparams.FLOATX,
-                shape=h_shp, name=name+'_hid',
+                shape=h_shp, name='hid',
                 trainable=False,
                 initializer=zero_init)
             self.s_states_di[v_cell.name] = v_cell
             self.s_states_di[v_hid.name] = v_hid
 
             op_lstm = lambda _h, _x: ops.lyr_lstm_flat(
-                name=name+'_LSTM',
+                name='LSTM',
                 s_x=_x, v_cell=_h[0], v_hid=_h[1],
                 axis=axis-1, op_linear=op_linear)
             s_cell_seq, s_hid_seq = tf.scan(
@@ -153,7 +156,7 @@ class Model(object):
             input_text_shape,
             name='source_text'
         )
-        with tf.name_scope('G'):
+        with tf.variable_scope('G'):
             s_texts = tf.one_hot(
                 s_source_texts, hparams.CHARSET_SIZE, dtype=hparams.FLOATX)
             # TODO add mixing coeff ?
@@ -170,7 +173,7 @@ class Model(object):
                     tf.reduce_sum(s_separated_signals, axis=1) - s_mixed_signals),
                 axis=None)
 
-        with tf.name_scope('D'):
+        with tf.variable_scope('D'):
             s_truth_signals = tf.concat(
                 [s_source_signals, tf.expand_dims(s_noise_signal, 1)], axis=1)
             # TODO use non-zero const padding once the feature is up
@@ -178,10 +181,12 @@ class Model(object):
             s_truth_texts = tf.pad(
                 s_texts - pad_const,
                 ((0,0), (0,1), (0,0), (0,0)), mode='CONSTANT') + pad_const
-            s_guess_t = discriminator(s_truth_signals, s_truth_texts)
-            s_guess_f = discriminator(
-                s_separated_signals,
-                tf.nn.softmax(s_predicted_texts))
+            with tf.variable_scope('dtor', reuse=False) as scope:
+                s_guess_t = discriminator(s_truth_signals, s_truth_texts)
+                scope.reuse_variables()
+                s_guess_f = discriminator(
+                    s_separated_signals,
+                    tf.nn.softmax(s_predicted_texts))
             s_truth = tf.concat([
                 tf.constant(
                     hparams.CLS_REAL_SIGNAL,
@@ -273,6 +278,14 @@ class Model(object):
     def reset_state(self):
         g_sess.run([self.op_init_states])
 
+    def parameter_count(self):
+        '''
+        Returns: integer
+        '''
+        v_vars_li = tf.trainable_variables()
+        return sum(
+            reduce(int.__mul__, v.get_shape().as_list()) for v in v_vars_li)
+
 
 def main():
     # TODO parse cmd args
@@ -301,9 +314,8 @@ def debug_test():
     s_y = mdl.lyr_lstm('RNN', s_x, 8)
     g_sess.run([tf.variables_initializer(tf.all_variables())])
     ret = g_sess.run(s_y, {s_x:np.random.rand(17,5,6)})
-    import pdb; pdb.set_trace()
 
 
 if __name__ == '__main__':
-    # main()
-    debug_test()
+    main()
+    # debug_test()

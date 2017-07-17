@@ -3,9 +3,6 @@ collection of commonly used Ops and layers
 '''
 
 import tensorflow as tf
-# TODO better compat for below import ?
-# as of r1.2
-from tensorflow.contrib.framework import get_name_scope
 
 import app.hparams as hparams
 
@@ -31,8 +28,7 @@ def lyr_linear(
     idim = x_shape[axis]
     ndim = len(x_shape)
     assert isinstance(idim, int)
-    name_scope = get_name_scope()
-    with tf.variable_scope(name_scope + '/' + name):
+    with tf.variable_scope(name):
         v_w = tf.get_variable(
             'W', [idim, odim],
             initializer=w_init,
@@ -86,7 +82,6 @@ def lyr_lstm_flat(name, s_x, v_cell, v_hid, axis=-1, op_linear=lyr_linear):
         - It's a *flat* layer, which means it doesn't create state variable
         - The size of s_x along axis must be known
     '''
-    import pdb; pdb.set_trace()
     idim = s_x.get_shape().as_list()[axis]
     assert idim is not None
     cell_shp = v_cell.get_shape().as_list()
@@ -94,9 +89,9 @@ def lyr_lstm_flat(name, s_x, v_cell, v_hid, axis=-1, op_linear=lyr_linear):
     hdim = cell_shp[axis]
     assert hdim == hid_shp[axis]
 
-    with tf.name_scope(name):
+    with tf.variable_scope(name):
         s_inp = tf.concat([s_x, v_hid], axis=axis)
-        s_act = op_linear(name+'_linear', s_inp, hdim*4, axis=axis)
+        s_act = op_linear('linear', s_inp, hdim*4, axis=axis)
         s_cell_new, s_gates = tf.split(s_act, [hdim, hdim*3], axis=axis)
         s_cell_new = tf.tanh(s_cell_new)
         s_igate, s_fgate, s_ogate = tf.split(
@@ -128,12 +123,12 @@ def lyr_gru(name, s_x, v_cell, axis=-1, op_linear=lyr_linear):
     cell_shp = v_cell.get_shape().as_list()
     hdim = cell_shp[axis]
 
-    with tf.name_scope(name):
+    with tf.variable_scope(name):
         s_inp = tf.concat([s_x, v_cell], axis=axis)
-        s_act = op_linear(name+'_gates', s_inp, hdim*2, axis=axis)
+        s_act = op_linear('gates', s_inp, hdim*2, axis=axis)
         s_rgate, s_igate = tf.split(tf.nn.sigmoid(s_act), 2, axis=axis)
         s_inp2 = tf.concat([s_x, v_cell * s_rgate], axis=axis)
-        s_cell_new = op_linear(name+'_linear', s_inp2, hdim, axis=axis)
+        s_cell_new = op_linear('linear', s_inp2, hdim, axis=axis)
         s_cell_new = tf.tanh(s_cell_new)
         s_cell_tp1 = v_cell * s_igate + s_cell_new * (1.-s_igate)
     return s_cell_tp1

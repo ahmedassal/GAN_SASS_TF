@@ -3,6 +3,7 @@ import tensorflow as tf
 import app.hparams as hparams
 import app.ops as ops
 
+
 class ModelModule(object):
     '''
     abstract class for a sub-module of model
@@ -96,7 +97,7 @@ class ToySeparator(Separator):
         self.name = name
 
     def __call__(self, s_signals):
-        with tf.name_scope(self.name):
+        with tf.variable_scope(self.name):
             s_mid = ops.lyr_linear(
                 'linear0', s_signals, hparams.FFT_SIZE*2, axis=-1)
             s_mid = ops.relu(s_mid, hparams.RELU_LEAKAGE)
@@ -131,7 +132,7 @@ class ToyRecognizer(Recognizer):
         out_shape[-1] = charset_size
         out_shape[-2] = text_length
 
-        with tf.name_scope(self.name):
+        with tf.variable_scope(self.name):
             s_mean = tf.reduce_mean(s_signals, axis=-2)
             s_mid = ops.lyr_linear('linear0', s_mean, fft_size*2, axis=-1)
             s_mid = ops.relu(s_mid, hparams.RELU_LEAKAGE)
@@ -150,7 +151,7 @@ class ToyDiscriminator(Discriminator):
         self.name = name
 
     def __call__(self, s_signals, s_texts=None):
-        with tf.name_scope(self.name):
+        with tf.variable_scope(self.name):
             s_signals_mean = tf.reduce_mean(s_signals, axis=-2)
             if s_texts is not None:
                 s_texts_mean = tf.reduce_mean(s_texts, axis=-2)
@@ -167,12 +168,54 @@ class ToyDiscriminator(Discriminator):
             s_output = ops.lyr_linear('linear1', s_mid, 3, axis=-1)
         return s_output
 
-@hparams.register_discriminator('bilstm-v1')
-class BiLstmV0Discriminator(Discriminator):
+
+@hparams.register_discriminator('bilstm-3way-v1')
+class BiLstmW3V0Dsctor(Discriminator):
+    '''
+    This discriminator applys two layer Bi-LSTM to both
+    signal and text, then send the activation of last time frame
+    to a linear projection layer to obtain logits
+    '''
     def __init__(self, model, name):
         self.name = name
         self.model = model
 
     def __call__(self, s_signals, s_texts=None):
-        with tf.name_scope(self.name):
-            pass
+        with tf.variable_scope(self.name):
+            s_signals_mid_fwd = self.model.lyr_lstm(
+                'LSTM0_fwd', s_signals, 128, t_axis=-2)
+            s_signals_mid_bwd = self.model.lyr_lstm(
+                'LSTM0_bwd', s_signals[:, ::-1], 128, t_axis=-2)
+            s_signals_mid = tf.concat(
+                [s_signals_mid_fwd, s_signals_mid_bwd], axis=-1)
+
+            s_signals_out_fwd = self.model.lyr_lstm(
+                'LSTM1_fwd', s_signals_mid, 64, t_axis=-2)
+            s_signals_out_bwd = self.model.lyr_lstm(
+                'LSTM1_bwd', s_signals_mid[:, :, ::-1], 64, t_axis=-2)
+            s_signals_out = tf.concat(
+                [s_signals_out_fwd[:, :, -1], s_signals_out_bwd[:, :, -1]],
+                axis=-1)
+
+            if s_texts is None:
+                s_out = s_signals_out
+            else:
+                s_texts_mid_fwd = self.model.lyr_lstm(
+                    'LSTM0_txt_fwd', s_texts, 64, t_axis=-2)
+                s_texts_mid_bwd = self.model.lyr_lstm(
+                    'LSTM0_txt_bwd', s_texts[:, ::-1], 64, t_axis=-2)
+                s_texts_mid = tf.concat(
+                    [s_texts_mid_fwd, s_texts_mid_bwd], axis=-1)
+
+                s_texts_out_fwd = self.model.lyr_lstm(
+                    'LSTM1_txt_fwd', s_texts_mid, 32, t_axis=-2)
+                s_texts_out_bwd = self.model.lyr_lstm(
+                    'LSTM1_txt_bwd', s_texts_mid[:, :, ::-1], 32, t_axis=-2)
+                s_out = tf.concat([
+                    s_texts_out_fwd[:, :, -1],
+                    s_texts_out_bwd[:, :, -1],
+                    s_signals_out], axis=-1)
+
+            s_logits = ops.lyr_linear('linear_logits', s_out, 3, axis=-1)
+        return s_logits
+
