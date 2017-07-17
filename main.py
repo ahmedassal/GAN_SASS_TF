@@ -40,6 +40,59 @@ class Model(object):
     '''
     def __init__(self, name='BaseModel'):
         self.name = name
+        self.s_states_di = {}
+
+    def lyr_lstm(self, name, s_x, hdim, axis=-1, t_axis=0, op_linear=ops.lyr_linear, reuse=False):
+        '''
+        Args:
+            name: string
+            s_x: input tensor
+            hdim: size of hidden layer
+            axis: which axis will RNN op get performed on
+            t_axis: which axis would be the timeframe
+            op_rnn: RNN layer function, defaults to ops.lyr_lstm
+        '''
+        x_shp = s_x.get_shape().as_list()
+        ndim = len(x_shp)
+        assert -ndim <= axis < ndim
+        assert -ndim <= t_axis < ndim
+        axis = axis % ndim
+        t_axis = t_axis % ndim
+        assert axis != t_axis
+        # make sure t_axis is 0, to make scan work
+        if t_axis != 0:
+            if axis == 0:
+                axis = t_axis % ndim
+            perm = list(range(ndim))
+            perm[0], perm[t_axis] = perm[t_axis], perm[0]
+            s_x = tf.transpose(s_x, perm)
+        x_shp[t_axis], x_shp[0] = x_shp[0], x_shp[t_axis]
+        idim = x_shp[axis]
+        assert isinstance(idim, int)
+        h_shp = x_shp[1:].copy()
+        h_shp[axis-1] = hdim
+        with tf.name_scope(name):
+            zero_init = tf.constant_initializer(0.)
+            v_cell = tf.get_variable(
+                dtype=hparams.FLOATX,
+                shape=h_shp, name=name+'_cell',
+                trainable=False,
+                initializer=zero_init)
+            v_hid = tf.get_variable(
+                dtype=hparams.FLOATX,
+                shape=h_shp, name=name+'_hid',
+                trainable=False,
+                initializer=zero_init)
+            self.s_states_di[v_cell.name] = v_cell
+            self.s_states_di[v_hid.name] = v_hid
+
+            op_lstm = lambda _h, _x: ops.lyr_lstm_flat(
+                name=name+'_LSTM',
+                s_x=_x, v_cell=_h[0], v_hid=_h[1],
+                axis=axis-1, op_linear=op_linear)
+            s_cell_seq, s_hid_seq = tf.scan(
+                op_lstm, s_x, initializer=(v_cell, v_hid))
+        return s_hid_seq if t_axis == 0 else tf.transpose(s_hid_seq, perm)
 
     def save(self, save_path, step):
         model_name = self.name
@@ -174,6 +227,8 @@ class Model(object):
         op_fit_discriminator = ozer.minimize(
             s_gan_loss, var_list=s_dparams_li)
         self.op_init_params = tf.variables_initializer(v_params_li)
+        self.op_init_states = tf.variables_initializer(
+            list(self.s_states_di.values()))
 
         self.all_summary = tf.summary.merge_all()
         self.feed_keys = [s_source_signals, s_source_texts]
@@ -192,7 +247,6 @@ class Model(object):
             # s_source_signals : np.random.rand(4, 3, 128, 256),
             # s_source_texts : np.random.randint(0, hparams.CHARSET_SIZE, (4,3,32)) }
         # ret = g_sess.run([s_gan_loss], _feed)
-        # import pdb; pdb.set_trace()
 
 
     def train(self, n_epoch, dataset=None):
@@ -214,7 +268,10 @@ class Model(object):
 
     def reset(self):
         '''re-initialize parameters, resets timestep'''
-        g_sess.run([self.op_init_params])
+        g_sess.run([self.op_init_params, self.op_init_states])
+
+    def reset_state(self):
+        g_sess.run([self.op_init_states])
 
 
 def main():
@@ -237,6 +294,16 @@ def main():
 
     # TODO inference
 
+def debug_test():
+    # REMOVEME
+    mdl = Model()
+    s_x = tf.placeholder('float32', [17,5,6])
+    s_y = mdl.lyr_lstm('RNN', s_x, 8)
+    g_sess.run([tf.variables_initializer(tf.all_variables())])
+    ret = g_sess.run(s_y, {s_x:np.random.rand(17,5,6)})
+    import pdb; pdb.set_trace()
+
 
 if __name__ == '__main__':
-    main()
+    # main()
+    debug_test()

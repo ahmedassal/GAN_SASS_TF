@@ -166,3 +166,13 @@ class ToyDiscriminator(Discriminator):
             s_mid = ops.relu(s_mid, hparams.RELU_LEAKAGE)
             s_output = ops.lyr_linear('linear1', s_mid, 3, axis=-1)
         return s_output
+
+@hparams.register_discriminator('bilstm-v1')
+class BiLstmV0Discriminator(Discriminator):
+    def __init__(self, model, name):
+        self.name = name
+        self.model = model
+
+    def __call__(self, s_signals, s_texts=None):
+        with tf.name_scope(self.name):
+            pass
