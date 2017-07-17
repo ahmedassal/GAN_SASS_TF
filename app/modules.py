@@ -170,7 +170,7 @@ class ToyDiscriminator(Discriminator):
 
 
 @hparams.register_discriminator('bilstm-3way-v1')
-class BiLstmW3V0Dsctor(Discriminator):
+class BiLstmW3V0Discriminator(Discriminator):
     '''
     This discriminator applys two layer Bi-LSTM to both
     signal and text, then send the activation of last time frame
@@ -219,3 +219,36 @@ class BiLstmW3V0Dsctor(Discriminator):
             s_logits = ops.lyr_linear('linear_logits', s_out, 3, axis=-1)
         return s_logits
 
+
+@hparams.register_recognizer('bilstm-ctc-v1')
+class BiLstmCtcRecognizer(Recognizer):
+    def __init__(self, model, name):
+        self.name = name
+        self.model = model
+
+    def __call__(self, s_signals):
+        raise NotImplementedError()
+
+
+@hparams.register_separator('bilstm-v1')
+class BiLstmSeparator(Separator):
+    def __init__(self, model, name):
+        self.name = name
+        self.model = model
+
+    def __call__(self, s_signals):
+        n_outs = hparams.MAX_N_SIGNAL + 1
+        raise NotImplementedError()
+
+
+@hparams.register_separator('dc-v1')
+class DeepClusterSeparator(Separator):
+    '''
+    This uses deep clustering to calculate mask
+    '''
+    def __init__(self, model, name):
+        self.name = name
+        self.model = model
+
+    def __call__(self, s_signals):
+        raise NotImplementedError()

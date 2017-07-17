@@ -5,7 +5,7 @@ hyperparameters
 # Hyperparameters are in CAPS
 # TODO use tf.app.flags to parse hyperparam from input
 #      or consider use json file to store hyperparams
-BATCH_SIZE = 4  # minibatch size
+BATCH_SIZE = 2  # minibatch size
 MAX_N_SIGNAL = 3
 FFT_SIZE = 256  # width of spectrogram
 CHARSET_SIZE = 32  # size of character set, including "end" character
