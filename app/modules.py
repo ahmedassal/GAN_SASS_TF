@@ -181,18 +181,20 @@ class BiLstmW3V0Discriminator(Discriminator):
         self.model = model
 
     def __call__(self, s_signals, s_texts=None):
+        rev_signal = (slice(None), slice(None), slice(None, None, -1))
+        rev_text = (slice(None), slice(None, None, -1))
         with tf.variable_scope(self.name):
             s_signals_mid_fwd = self.model.lyr_lstm(
                 'LSTM0_fwd', s_signals, 128, t_axis=-2)
             s_signals_mid_bwd = self.model.lyr_lstm(
-                'LSTM0_bwd', s_signals[:, ::-1], 128, t_axis=-2)
+                'LSTM0_bwd', s_signals[rev_signal], 128, t_axis=-2)
             s_signals_mid = tf.concat(
-                [s_signals_mid_fwd, s_signals_mid_bwd], axis=-1)
+                [s_signals_mid_fwd, s_signals_mid_bwd[rev_signal]], axis=-1)
 
             s_signals_out_fwd = self.model.lyr_lstm(
                 'LSTM1_fwd', s_signals_mid, 64, t_axis=-2)
             s_signals_out_bwd = self.model.lyr_lstm(
-                'LSTM1_bwd', s_signals_mid[:, :, ::-1], 64, t_axis=-2)
+                'LSTM1_bwd', s_signals_mid[rev_signal], 64, t_axis=-2)
             s_signals_out = tf.concat(
                 [s_signals_out_fwd[:, :, -1], s_signals_out_bwd[:, :, -1]],
                 axis=-1)
@@ -203,17 +205,17 @@ class BiLstmW3V0Discriminator(Discriminator):
                 s_texts_mid_fwd = self.model.lyr_lstm(
                     'LSTM0_txt_fwd', s_texts, 64, t_axis=-2)
                 s_texts_mid_bwd = self.model.lyr_lstm(
-                    'LSTM0_txt_bwd', s_texts[:, ::-1], 64, t_axis=-2)
+                    'LSTM0_txt_bwd', s_texts[rev_text], 64, t_axis=-2)
                 s_texts_mid = tf.concat(
-                    [s_texts_mid_fwd, s_texts_mid_bwd], axis=-1)
+                    [s_texts_mid_fwd, s_texts_mid_bwd[rev_text]], axis=-1)
 
                 s_texts_out_fwd = self.model.lyr_lstm(
                     'LSTM1_txt_fwd', s_texts_mid, 32, t_axis=-2)
                 s_texts_out_bwd = self.model.lyr_lstm(
-                    'LSTM1_txt_bwd', s_texts_mid[:, :, ::-1], 32, t_axis=-2)
+                    'LSTM1_txt_bwd', s_texts_mid[rev_text], 32, t_axis=-2)
                 s_out = tf.concat([
-                    s_texts_out_fwd[:, :, -1],
-                    s_texts_out_bwd[:, :, -1],
+                    s_texts_out_fwd[:, -1],
+                    s_texts_out_bwd[:, -1],
                     s_signals_out], axis=-1)
 
             s_logits = ops.lyr_linear('linear_logits', s_out, 3, axis=-1)
@@ -238,7 +240,35 @@ class BiLstmSeparator(Separator):
 
     def __call__(self, s_signals):
         n_outs = hparams.MAX_N_SIGNAL + 1
-        raise NotImplementedError()
+        fft_size = hparams.FFT_SIZE
+        rev_signal = (slice(None), slice(None), slice(None, None, -1))
+        with tf.variable_scope(self.name):
+            s_mid0_fwd = self.model.lyr_lstm(
+                'lstm0_fwd', s_signals, 128, t_axis=-2)
+            s_mid0_bwd = self.model.lyr_lstm(
+                'lstm0_bwd', s_signals[rev_signal], 128, t_axis=-2)
+            s_mid0 = tf.concat(
+                [s_mid0_fwd, s_mid0_bwd[rev_signal]], axis=-1)
+
+            s_mid1_fwd = self.model.lyr_lstm(
+                'lstm1_fwd', s_mid0, 256, t_axis=-2)
+            s_mid1_bwd = self.model.lyr_lstm(
+                'lstm1_bwd', s_mid0[rev_signal], 256, t_axis=-2)
+            s_mid1 = tf.concat(
+                [s_mid1_fwd, s_mid1_bwd[rev_signal]], axis=-1)
+
+            s_out_fwd = self.model.lyr_lstm(
+                'lstm2_fwd', s_mid1, 256, t_axis=-2)
+            s_out_bwd = self.model.lyr_lstm(
+                'lstm2_bwd', s_mid1[rev_signal], 256, t_axis=-2)
+            s_out = tf.concat(
+                [s_out_fwd, s_out_bwd[rev_signal]], axis=-1)
+            s_out = ops.lyr_linear(
+                'output', s_out, fft_size * n_outs, bias=False)
+            s_out = tf.reshape(
+                s_out, [hparams.BATCH_SIZE, -1, n_outs, fft_size])
+            s_out = tf.transpose(s_out, [0, 2, 1, 3])
+        return s_out
 
 
 @hparams.register_separator('dc-v1')

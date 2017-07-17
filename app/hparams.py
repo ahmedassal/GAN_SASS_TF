@@ -16,9 +16,9 @@ FLOATX = 'float32'  # default type for float
 INTX = 'int32'  # defualt type for int
 
 EXTRACTOR_TYPE = 'toy'
-SEPARATOR_TYPE = 'toy'
+SEPARATOR_TYPE = 'bilstm-v1'
 RECOGNIZER_TYPE = 'toy'
-DISCRIMINATOR_TYPE = 'bilstm-3way-v1'
+DISCRIMINATOR_TYPE = 'toy'
 
 # TODO add ADAM and other ozers
 OPTIMIZER_TYPE = 'sgd'
