@@ -8,7 +8,7 @@ hyperparameters
 BATCH_SIZE = 2  # minibatch size
 MAX_N_SIGNAL = 3
 FFT_SIZE = 256  # width of spectrogram
-CHARSET_SIZE = 32  # size of character set, including "end" character
+CHARSET_SIZE = 27  # size of character set, excluding "blank" character
 EPS = 1e-7  # to prevent sqrt() log() etc cause NaN
 RELU_LEAKAGE = 0.3  # how leaky relu is, 0 -> relu, 1 -> linear
 USE_TEXT = False  # whether to integrate speech recognizer into GAN training
@@ -16,16 +16,19 @@ FLOATX = 'float32'  # default type for float
 INTX = 'int32'  # defualt type for int
 
 EXTRACTOR_TYPE = 'toy'
-SEPARATOR_TYPE = 'bilstm-v1'
-RECOGNIZER_TYPE = 'toy'
+SEPARATOR_TYPE = 'toy'
+RECOGNIZER_TYPE = 'bilstm-ctc-v1'
 DISCRIMINATOR_TYPE = 'toy'
 
 # TODO add ADAM and other ozers
-OPTIMIZER_TYPE = 'sgd'
-LR = 1e-4  # learn rate
+OPTIMIZER_TYPE = 'sgd'  # "sgd" or "adam"
+LR = 1e-5  # learn rate
 LR_DECAY = None
 
-DATASET_TYPE = 'toy'
+DATASET_TYPE = 'toy'  # "toy" or "timit"
+
+CTC_DECODER_TYPE = 'beam'
+# "greedy" or "beam", beam is slower but gives better result
 
 SUMMARY_DIR = './logs'
 

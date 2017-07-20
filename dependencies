@@ -1,8 +1,13 @@
 [python]
 - six
-- numpy, scipy
+- numpy, scipy, nltk
 - tensorflow 1.12+
 
 [TIMIT dataset]
 - install "sndfile-convert" utility
     sudo apt-get install sndfile-programs
+
+[optional]
+- install warp-ctc for better GPU CTC performance
+    git clone https://github/baidu-research/warp-ctc
+    then follow instructions to install

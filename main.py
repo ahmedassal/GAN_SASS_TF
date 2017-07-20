@@ -8,11 +8,21 @@ from __future__ import absolute_import
 from __future__ import division
 
 from sys import stdout
+from itertools import product
 from functools import reduce
 import os
 
+import nltk
 import numpy as np
 import tensorflow as tf
+
+try:
+    import warpctc_tensorflow
+except Exception as e:
+    if type(e).__name__ in ['ImportError', 'ModuleNotFoundError']:
+        print("Warning: not using warp_ctc, performance may be worse.")
+    else:
+        raise
 
 import app.hparams as hparams
 import app.ops as ops
@@ -23,6 +33,9 @@ import app.modules as modules
 
 # Global vars
 g_sess = tf.Session()
+g_ctc_decoder = dict(
+    beam=tf.nn.ctc_beam_search_decoder,
+    greedy=tf.nn.ctc_greedy_decoder)[hparams.CTC_DECODER_TYPE]
 
 def _dict_add(dst, src):
     for k,v in src.items():
@@ -31,8 +44,59 @@ def _dict_add(dst, src):
         else:
             dst[k] += v
 
+
 def _dict_format(di):
     return ' '.join('='.join((k, str(v))) for k,v in di.items())
+
+
+def batch_levenshtein(x, y):
+    '''
+    Batched version of nltk.edit_distance, over character
+    This performs edit distance over last axis, trimming trailing zeros.
+
+    Args:
+        x: int array, hypothesis
+        y: int array, target
+
+    Returns: int32 array
+    '''
+    x_shp = x.shape
+    y_shp = y.shape
+    assert x_shp[:-1] == y_shp[:-1]
+    idx_iter = product(*map(range, x_shp[:-1]))
+
+    z = np.empty(x_shp[:-1], dtype='int32')
+    for idx in idx_iter:
+        u, v = x[idx], y[idx]
+        u = np.trim_zeros(u, 'b')
+        v = np.trim_zeros(v, 'b')
+        z[idx] = nltk.edit_distance(u, v)
+    return z
+
+
+def batch_wer(x, y, fn_decoder):
+    '''
+    Batched version of nltk.edit_distance, over words
+    This performs edit distance over last axis, trimming trailing zeros.
+
+    Args:
+        x: int array, hypothesis
+        y: int array, target
+        fn_decoder: function to convert int vector into string
+
+    Returns: int32 array
+    '''
+    x_shp = x.shape
+    y_shp = y.shape
+    assert x_shp[:-1] == y_shp[:-1]
+    idx_iter = product(*map(range, x_shp[:-1]))
+
+    z = np.empty(x_shp[-1], dtype='int32')
+    for idx in idx_iter:
+        x_str = fn_decoder(x[idx]).strip(' $').split(' ')
+        y_str = fn_decoder(y[idx]).strip(' $').split(' ')
+        z[idx] = nltk.edit_distance(x_str, y_str)
+    return z
 
 
 class Model(object):
@@ -45,7 +109,9 @@ class Model(object):
         self.name = name
         self.s_states_di = {}
 
-    def lyr_lstm(self, name, s_x, hdim, axis=-1, t_axis=0, op_linear=ops.lyr_linear, reuse=False):
+    def lyr_lstm(
+            self, name, s_x, hdim,
+            axis=-1, t_axis=0, op_linear=ops.lyr_linear, reuse=False):
         '''
         Args:
             name: string
@@ -135,81 +201,131 @@ class Model(object):
         discriminator = hparams.get_discriminator()(
             self, 'discriminator')
 
-        input_shape = [
-            hparams.BATCH_SIZE,
-            hparams.MAX_N_SIGNAL,
-            None,
-            hparams.FFT_SIZE]
-        input_text_shape = [
-            hparams.BATCH_SIZE,
-            hparams.MAX_N_SIGNAL,
-            None]
-        single_signal_shape = input_shape.copy()
+        bsize = hparams.BATCH_SIZE * hparams.MAX_N_SIGNAL
+        input_shape = [bsize, None, hparams.FFT_SIZE]
+        single_signal_shape = [hparams.BATCH_SIZE, None, hparams.FFT_SIZE]
         del(single_signal_shape[1])
 
-        s_source_signals = tf.placeholder(
+        # build the GAN model
+        s_src_signals = tf.placeholder(
             hparams.FLOATX,
             input_shape,
             name='source_signal')
-        s_source_texts = tf.placeholder(
+        sS_src_texts = tf.sparse_placeholder(
             hparams.INTX,
-            input_text_shape,
             name='source_text'
         )
         with tf.variable_scope('G'):
-            s_texts = tf.one_hot(
-                s_source_texts, hparams.CHARSET_SIZE, dtype=hparams.FLOATX)
+            # s_texts_dense = tf.sparse_to_dense(
+                # sS_src_texts.indices,
+                # sS_src_texts.dense_shape,
+                # sS_src_texts.values)
+            # s_texts_dense = tf.reshape(
+                # s_texts_dense, [hparams.BATCH_SIZE, hparams.MAX_N_SIGNAL, -1])
+            # s_texts_dense = tf.one_hot(
+                # s_texts_dense, hparams.CHARSET_SIZE, dtype=hparams.FLOATX)
             # TODO add mixing coeff ?
-            s_mixed_signals = tf.reduce_sum(s_source_signals, axis=1)
+            s_mixed_signals = tf.reduce_sum(
+                tf.reshape(s_src_signals, [
+                    hparams.BATCH_SIZE,
+                    hparams.MAX_N_SIGNAL,
+                    -1, hparams.FFT_SIZE]), axis=1)
             s_noise_signal = tf.random_normal(
                 tf.shape(s_mixed_signals),
                 stddev=0.1,
                 dtype=hparams.FLOATX)
             s_mixed_signals += s_noise_signal
             s_separated_signals = separator(s_mixed_signals)
-            s_predicted_texts = recognizer(s_separated_signals)
+            sS_pred_texts = recognizer(s_separated_signals)
+            if recognizer.IS_CTC:
+                bsize = hparams.BATCH_SIZE * (hparams.MAX_N_SIGNAL+1)
+                sS_pred_texts = tf.transpose(
+                    sS_pred_texts, [1, 0, 2])
+                s_seqlen = tf.tile(
+                    tf.shape(sS_pred_texts)[1:2],
+                    [bsize])
+                s_asr_loss = tf.nn.ctc_loss(
+                    sS_src_texts, sS_pred_texts, s_seqlen)
+                sS_pred_texts = g_ctc_decoder(sS_pred_texts, s_seqlen)[0][0]
             s_autoencoder_loss = tf.reduce_mean(
                 tf.square(
-                    tf.reduce_sum(s_separated_signals, axis=1) - s_mixed_signals),
+                    tf.reduce_sum(
+                        tf.reshape(s_separated_signals, [
+                            hparams.BATCH_SIZE,
+                            hparams.MAX_N_SIGNAL+1,
+                            -1, hparams.FFT_SIZE]), axis=1
+                        ) - s_mixed_signals),
                 axis=None)
 
         with tf.variable_scope('D'):
-            s_truth_signals = tf.concat(
-                [s_source_signals, tf.expand_dims(s_noise_signal, 1)], axis=1)
+            s_truth_signals = tf.concat([
+                tf.reshape(s_src_signals, [
+                    hparams.BATCH_SIZE,
+                    hparams.MAX_N_SIGNAL,
+                    -1, hparams.FFT_SIZE]),
+                tf.expand_dims(s_noise_signal, 1)], axis=1)
+            s_truth_signals = tf.reshape(s_truth_signals, [
+                hparams.BATCH_SIZE * (hparams.MAX_N_SIGNAL+1),
+                -1, hparams.FFT_SIZE])
+
+            # convert source text to dense one-hot
+            s_src_texts = tf.sparse_to_dense(
+                sS_src_texts.indices,
+                sS_src_texts.dense_shape,
+                sS_src_texts.values,
+                default_value=hparams.CHARSET_SIZE)
+            s_src_texts = tf.reshape(
+                s_src_texts, [hparams.BATCH_SIZE, hparams.MAX_N_SIGNAL, -1])
+            s_src_texts = tf.one_hot(
+                s_src_texts, hparams.CHARSET_SIZE, dtype=hparams.FLOATX)
             # TODO use non-zero const padding once the feature is up
             pad_const = 1. / hparams.CHARSET_SIZE
             s_truth_texts = tf.pad(
-                s_texts - pad_const,
+                s_src_texts - pad_const,
                 ((0,0), (0,1), (0,0), (0,0)), mode='CONSTANT') + pad_const
+            s_truth_texts = tf.reshape(s_truth_texts, [
+                hparams.BATCH_SIZE * (hparams.MAX_N_SIGNAL+1),
+                -1, hparams.CHARSET_SIZE])
+
+            # convert predicted text to dense one-hot
+            s_pred_texts = tf.sparse_to_dense(
+                sS_pred_texts.indices,
+                sS_pred_texts.dense_shape,
+                sS_pred_texts.values,
+                default_value=hparams.CHARSET_SIZE)
+            s_guess_texts = tf.one_hot(
+                s_pred_texts,
+                hparams.CHARSET_SIZE,
+                dtype=hparams.FLOATX)
+            # pad additional zero at end to make sure no zero length text
+            s_guess_texts = tf.pad(s_guess_texts, ((0,0), (0,1), (0,0)))
+
             with tf.variable_scope('dtor', reuse=False) as scope:
                 s_guess_t = discriminator(s_truth_signals, s_truth_texts)
                 scope.reuse_variables()
                 s_guess_f = discriminator(
                     s_separated_signals,
-                    tf.nn.softmax(s_predicted_texts))
+                    s_guess_texts)
             s_truth = tf.concat([
                 tf.constant(
                     hparams.CLS_REAL_SIGNAL,
                     hparams.INTX,
-                    [1, hparams.MAX_N_SIGNAL]),
+                    [hparams.MAX_N_SIGNAL]),
                 tf.constant(
                     hparams.CLS_REAL_NOISE,
                     hparams.INTX,
-                    [1, 1])], axis=-1)
+                    [1])], axis=-1)
+            s_truth = tf.one_hot(tf.tile(s_truth, [hparams.BATCH_SIZE]), 3)
             s_lies = tf.constant(
                     hparams.CLS_FAKE_SIGNAL,
                     hparams.INTX,
-                    [1, hparams.MAX_N_SIGNAL+1])
-            s_truth = tf.one_hot(s_truth, 3)
+                    [(hparams.MAX_N_SIGNAL+1)*hparams.BATCH_SIZE])
             s_lies = tf.one_hot(s_lies, 3)
-            # TODO optimize log(softmax(...))
-            s_gan_loss_t = tf.reduce_sum(
-                - tf.log(tf.nn.softmax(s_guess_t) + hparams.EPS) * s_truth,
-                axis=None)
-            s_gan_loss_f = tf.reduce_sum(
-                - tf.log(tf.nn.softmax(s_guess_f) + hparams.EPS) * s_lies,
-                axis=None)
-            s_gan_loss = (s_gan_loss_t + s_gan_loss_f) / hparams.BATCH_SIZE
+            s_gan_loss_t = tf.nn.softmax_cross_entropy_with_logits(
+                labels=s_truth, logits=s_guess_t)
+            s_gan_loss_f = tf.nn.softmax_cross_entropy_with_logits(
+                labels=s_lies, logits=s_guess_f)
+            s_gan_loss = tf.reduce_mean(s_gan_loss_t + s_gan_loss_f)
 
         # prepare summary
         # TODO add impl & summary for word error rate
@@ -236,7 +352,7 @@ class Model(object):
             list(self.s_states_di.values()))
 
         self.all_summary = tf.summary.merge_all()
-        self.feed_keys = [s_source_signals, s_source_texts]
+        self.feed_keys = [s_src_signals, sS_src_texts]
         self.train_fetches = [
             self.all_summary,
             dict(gan_loss=s_gan_loss, ae_loss=s_autoencoder_loss),
@@ -244,13 +360,13 @@ class Model(object):
 
         self.infer_fetches = [dict(
             signals=s_separated_signals,
-            texts=s_predicted_texts)]
+            texts=sS_pred_texts)]
 
         # FOR DEBUGGING
         # g_sess.run([self.op_init_params])
         # _feed = {
-            # s_source_signals : np.random.rand(4, 3, 128, 256),
-            # s_source_texts : np.random.randint(0, hparams.CHARSET_SIZE, (4,3,32)) }
+            # s_src_signals : np.random.rand(4, 3, 128, 256),
+            # sS_src_texts : np.random.randint(0, hparams.CHARSET_SIZE, (4,3,32)) }
         # ret = g_sess.run([s_gan_loss], _feed)
 
 
@@ -258,7 +374,7 @@ class Model(object):
         train_writer = tf.summary.FileWriter(hparams.SUMMARY_DIR, g_sess.graph)
         for i_epoch in range(n_epoch):
             cli_report = {}
-            for data_pt in dataset.epoch('train', hparams.BATCH_SIZE):
+            for data_pt in dataset.epoch('train', hparams.BATCH_SIZE * hparams.MAX_N_SIGNAL):
                 to_feed = dict(zip(self.feed_keys, data_pt))
                 step_summary, step_fetch = g_sess.run(
                     self.train_fetches, to_feed)[:2]
@@ -292,8 +408,8 @@ def main():
     # TODO manage device
     print('Preparing dataset ... ', end='')
     stdout.flush()
-    dataset = hparams.get_dataset()()
-    dataset.install_and_load()
+    g_dataset = hparams.get_dataset()()
+    g_dataset.install_and_load()
     print('done')
     stdout.flush()
 
@@ -303,17 +419,15 @@ def main():
     print('done')
     stdout.flush()
     model.reset()
-    model.train(n_epoch=10, dataset=dataset)
+    model.train(n_epoch=10, dataset=g_dataset)
 
     # TODO inference
 
 def debug_test():
-    # REMOVEME
-    mdl = Model()
-    s_x = tf.placeholder('float32', [17,5,6])
-    s_y = mdl.lyr_lstm('RNN', s_x, 8)
-    g_sess.run([tf.variables_initializer(tf.all_variables())])
-    ret = g_sess.run(s_y, {s_x:np.random.rand(17,5,6)})
+    x = np.random.randint(0, 2, (32, 32, 32))
+    y = np.random.randint(0, 2, (32, 32, 32))
+    d = batch_levenshtein(x, y)
+    import pdb; pdb.set_trace()
 
 
 if __name__ == '__main__':

@@ -32,7 +32,7 @@ class Separator(ModelModule):
                 3d tensor of shape [batch_size, length, fft_size]
 
         Returns:
-            [batch_size, n_signal+1, length, fft_size]
+            [batch_size * (n_signal+1), length, fft_size]
 
         Notes:
             `length` is a not constant
@@ -43,7 +43,14 @@ class Separator(ModelModule):
 class Recognizer(ModelModule):
     '''
     speech recognizer, need clean voice as input
+
+    If IS_CTC is True, this module returns a dense sequence
+        of categorical distribution logits. ready to be fed
+        into CTC.
+
+    Otherwise, returns a sparse tensor as texts
     '''
+    IS_CTC = False
     def __init__(self, model, name):
         pass
 
@@ -51,19 +58,19 @@ class Recognizer(ModelModule):
         '''
         Args:
             s_signals: tensor variable
-                [batch_size, n_signal+1, length, fft_size]
+                [batch_size, length, fft_size]
 
         Returns:
-            logits, tensor variable of shape:
-            [batch_size, n_signal+1, out_length, charset_size]
+            if IS_CTC==True: logits, tensor variable of shape:
+            [batch_size, out_length, charset_size]
 
-            perform argmax on last axis to obtain symbol idx
+            if IS_CTC==False: int32 sparse matrix of shape:
+            [batch_size, max_len]
 
         Notes:
-            - `length` is a not constant
-            - `out_length` may not be the same as `length`
+            - `length` can be unknown
         '''
-        pass
+        raise NotImplementedError()
 
 
 class Discriminator(ModelModule):
@@ -77,13 +84,14 @@ class Discriminator(ModelModule):
         '''
         Args:
             s_signals: tensor variable
-                shape: [batch_size, (n_signal+1)*2, length, fft_size]
+                shape: [batch_size, length, fft_size]
 
             s_texts: tensor variable
-                shape: [batch_size, (n_signal+1)*2, text_length, charset_size]
+                shape: [batch_size, text_length, charset_size]
+                this is a categorical distribution sequence
 
         Returns:
-            tensor variable of shape [batch_size, (n_signal+1)*2, 3]
+            tensor variable of shape [batch_size, 3]
         '''
         raise NotImplementedError()
 
@@ -107,8 +115,11 @@ class ToySeparator(Separator):
             s_out = tf.reshape(
                 s_out,
                 [hparams.BATCH_SIZE,
-                    (hparams.MAX_N_SIGNAL+1),
-                    -1, hparams.FFT_SIZE])
+                    -1, hparams.MAX_N_SIGNAL+1, hparams.FFT_SIZE])
+            s_out = tf.transpose(s_out, [0, 2, 1, 3])
+            s_out = tf.reshape(s_out, [
+                hparams.BATCH_SIZE * (hparams.MAX_N_SIGNAL+1),
+                -1, hparams.FFT_SIZE])
         return s_out
 
 
@@ -117,8 +128,9 @@ class ToyRecognizer(Recognizer):
     '''
     Toy recognizer for debugging purposes
 
-    This always output length 16 logits sequence using 3-layer MLP
+    This always outputs CTC logits sequence using 3-layer MLP
     '''
+    IS_CTC = True
     def __init__(self, model, name):
         self.name = name
 
@@ -133,12 +145,11 @@ class ToyRecognizer(Recognizer):
         out_shape[-2] = text_length
 
         with tf.variable_scope(self.name):
-            s_mean = tf.reduce_mean(s_signals, axis=-2)
-            s_mid = ops.lyr_linear('linear0', s_mean, fft_size*2, axis=-1)
+            s_mid = ops.lyr_linear('linear0', s_signals, fft_size*2, axis=-1)
             s_mid = ops.relu(s_mid, hparams.RELU_LEAKAGE)
             s_logits = ops.lyr_linear(
-                'linear1', s_mid, charset_size*text_length, axis=-1)
-            s_logits = tf.reshape(s_logits, out_shape)
+                'linear1', s_mid, charset_size+1, axis=-1)
+
         return s_logits
 
 
@@ -162,7 +173,6 @@ class ToyDiscriminator(Discriminator):
             inp_shape = s_input.get_shape().as_list()
             inp_ndim = inp_shape[-1]
 
-            s_input = tf.reshape(s_input, inp_shape)
             s_mid = ops.lyr_linear('linear0', s_input, inp_ndim*2, axis=-1)
             s_mid = ops.relu(s_mid, hparams.RELU_LEAKAGE)
             s_output = ops.lyr_linear('linear1', s_mid, 3, axis=-1)
@@ -181,38 +191,38 @@ class BiLstmW3V0Discriminator(Discriminator):
         self.model = model
 
     def __call__(self, s_signals, s_texts=None):
-        rev_signal = (slice(None), slice(None), slice(None, None, -1))
+        rev_signal = (slice(None), slice(None, None, -1))
         rev_text = (slice(None), slice(None, None, -1))
         with tf.variable_scope(self.name):
             s_signals_mid_fwd = self.model.lyr_lstm(
-                'LSTM0_fwd', s_signals, 128, t_axis=-2)
+                'LSTM0_fwd', s_signals, 64, t_axis=-2)
             s_signals_mid_bwd = self.model.lyr_lstm(
-                'LSTM0_bwd', s_signals[rev_signal], 128, t_axis=-2)
+                'LSTM0_bwd', s_signals[rev_signal], 64, t_axis=-2)
             s_signals_mid = tf.concat(
                 [s_signals_mid_fwd, s_signals_mid_bwd[rev_signal]], axis=-1)
 
             s_signals_out_fwd = self.model.lyr_lstm(
-                'LSTM1_fwd', s_signals_mid, 64, t_axis=-2)
+                'LSTM1_fwd', s_signals_mid, 32, t_axis=-2)
             s_signals_out_bwd = self.model.lyr_lstm(
-                'LSTM1_bwd', s_signals_mid[rev_signal], 64, t_axis=-2)
+                'LSTM1_bwd', s_signals_mid[rev_signal], 32, t_axis=-2)
             s_signals_out = tf.concat(
-                [s_signals_out_fwd[:, :, -1], s_signals_out_bwd[:, :, -1]],
+                [s_signals_out_fwd[:, -1], s_signals_out_bwd[:, -1]],
                 axis=-1)
 
             if s_texts is None:
                 s_out = s_signals_out
             else:
                 s_texts_mid_fwd = self.model.lyr_lstm(
-                    'LSTM0_txt_fwd', s_texts, 64, t_axis=-2)
+                    'LSTM0_txt_fwd', s_texts, 32, t_axis=-2)
                 s_texts_mid_bwd = self.model.lyr_lstm(
-                    'LSTM0_txt_bwd', s_texts[rev_text], 64, t_axis=-2)
+                    'LSTM0_txt_bwd', s_texts[rev_text], 32, t_axis=-2)
                 s_texts_mid = tf.concat(
                     [s_texts_mid_fwd, s_texts_mid_bwd[rev_text]], axis=-1)
 
                 s_texts_out_fwd = self.model.lyr_lstm(
-                    'LSTM1_txt_fwd', s_texts_mid, 32, t_axis=-2)
+                    'LSTM1_txt_fwd', s_texts_mid, 16, t_axis=-2)
                 s_texts_out_bwd = self.model.lyr_lstm(
-                    'LSTM1_txt_bwd', s_texts_mid[rev_text], 32, t_axis=-2)
+                    'LSTM1_txt_bwd', s_texts_mid[rev_text], 16, t_axis=-2)
                 s_out = tf.concat([
                     s_texts_out_fwd[:, -1],
                     s_texts_out_bwd[:, -1],
@@ -224,12 +234,45 @@ class BiLstmW3V0Discriminator(Discriminator):
 
 @hparams.register_recognizer('bilstm-ctc-v1')
 class BiLstmCtcRecognizer(Recognizer):
+    IS_CTC = True
     def __init__(self, model, name):
         self.name = name
         self.model = model
 
     def __call__(self, s_signals):
-        raise NotImplementedError()
+        rev_signal = (slice(None), slice(None), slice(None, None, -1))
+        charset_size = hparams.CHARSET_SIZE
+        with tf.variable_scope(self.name):
+            s_mid0_fwd = self.model.lyr_lstm(
+                'LSTM0_fwd', s_signals, 128, t_axis=-2)
+            s_mid0_bwd = self.model.lyr_lstm(
+                'LSTM0_bwd', s_signals[rev_signal], 128, t_axis=-2)
+            s_mid0 = tf.concat(
+                [s_mid0_fwd, s_mid0_bwd[rev_signal]], axis=-1)
+
+            s_mid1_fwd = self.model.lyr_lstm(
+                'LSTM1_fwd', s_mid0, 64, t_axis=-2)
+            s_mid1_bwd = self.model.lyr_lstm(
+                'LSTM1_bwd', s_mid0[rev_signal], 64, t_axis=-2)
+            s_mid1 = tf.concat(
+                [s_mid1_fwd, s_mid1_bwd[rev_signal]], axis=-1)
+
+            s_mid2_fwd = self.model.lyr_lstm(
+                'LSTM2_fwd', s_mid1, 64, t_axis=-2)
+            s_mid2_bwd = self.model.lyr_lstm(
+                'LSTM2_bwd', s_mid1[rev_signal], 64, t_axis=-2)
+            s_mid2 = tf.concat(
+                [s_mid2_fwd, s_mid2_bwd[rev_signal]], axis=-1)
+
+            s_mid3_fwd = self.model.lyr_lstm(
+                'LSTM3_fwd', s_mid2, 32, t_axis=-2)
+            s_mid3_bwd = self.model.lyr_lstm(
+                'LSTM3_bwd', s_mid2[rev_signal], 32, t_axis=-2)
+            s_mid3 = tf.concat(
+                [s_mid3_fwd, s_mid3_bwd[rev_signal]], axis=-1)
+
+            s_logits = ops.lyr_linear('linear', s_mid3, charset_size+1, axis=-1)
+        return s_logits
 
 
 @hparams.register_separator('bilstm-v1')
@@ -241,7 +284,7 @@ class BiLstmSeparator(Separator):
     def __call__(self, s_signals):
         n_outs = hparams.MAX_N_SIGNAL + 1
         fft_size = hparams.FFT_SIZE
-        rev_signal = (slice(None), slice(None), slice(None, None, -1))
+        rev_signal = (slice(None), slice(None, None, -1))
         with tf.variable_scope(self.name):
             s_mid0_fwd = self.model.lyr_lstm(
                 'lstm0_fwd', s_signals, 128, t_axis=-2)
@@ -268,6 +311,7 @@ class BiLstmSeparator(Separator):
             s_out = tf.reshape(
                 s_out, [hparams.BATCH_SIZE, -1, n_outs, fft_size])
             s_out = tf.transpose(s_out, [0, 2, 1, 3])
+            s_out = tf.reshape(s_out, [hparams.BATCH_SIZE*n_outs, -1, fft_size])
         return s_out
 
 
