@@ -440,7 +440,7 @@ class Model(object):
 
     def reset(self):
         '''re-initialize parameters, resets timestep'''
-        g_sess.run([self.op_init_params, self.op_init_states])
+        g_sess.run(tf.global_variables_initializer())
 
     def reset_state(self):
         '''reset RNN states'''
