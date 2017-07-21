@@ -7,6 +7,7 @@ from __future__ import print_function
 from __future__ import absolute_import
 from __future__ import division
 
+import argparse
 from sys import stdout
 from itertools import product
 from functools import reduce
@@ -164,7 +165,7 @@ class Model(object):
                 op_lstm, s_x, initializer=(v_cell, v_hid))
         return s_hid_seq if t_axis == 0 else tf.transpose(s_hid_seq, perm)
 
-    def save(self, save_path, step):
+    def save_params(self, save_path, step):
         model_name = self.name
         if not os.path.exists(save_path):
             os.makedirs(save_path)
@@ -174,7 +175,7 @@ class Model(object):
                         os.path.join(save_path, model_name),
                         global_step=step)
 
-    def load(self, save_path, model_file=None):
+    def load_params(self, save_path, model_file=None):
         if not os.path.exists(save_path):
             print('[!] Checkpoints path does not exist...')
             return False
@@ -380,8 +381,8 @@ class Model(object):
                 step_summary, step_fetch = g_sess.run(
                     self.train_fetches, to_feed)[:2]
                 train_writer.add_summary(step_summary)
-                # stdout.write('.')
-                # stdout.flush()
+                stdout.write('.')
+                stdout.flush()
                 _dict_add(cli_report, step_fetch)
             print('Epoch %d/%d %s' % (
                 i_epoch+1, n_epoch, _dict_format(cli_report)))
