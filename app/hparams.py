@@ -16,7 +16,6 @@ FLOATX = 'float32'  # default type for float
 INTX = 'int32'  # defualt type for int
 DROPOUT_PROB = 0.3  # probability of dropout
 
-EXTRACTOR_TYPE = 'toy'
 SEPARATOR_TYPE = 'toy'
 RECOGNIZER_TYPE = 'bilstm-ctc-v1'
 DISCRIMINATOR_TYPE = 'toy'
@@ -41,7 +40,6 @@ CLS_FAKE_SIGNAL = 2
 # some hyperparameters
 
 # registry
-extractor_registry = {}
 separator_registry = {}
 recognizer_registry = {}
 discriminator_registry = {}
