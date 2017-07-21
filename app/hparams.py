@@ -14,6 +14,7 @@ RELU_LEAKAGE = 0.3  # how leaky relu is, 0 -> relu, 1 -> linear
 USE_TEXT = False  # whether to integrate speech recognizer into GAN training
 FLOATX = 'float32'  # default type for float
 INTX = 'int32'  # defualt type for int
+DROPOUT_PROB = 0.3  # probability of dropout
 
 EXTRACTOR_TYPE = 'toy'
 SEPARATOR_TYPE = 'toy'
@@ -24,7 +25,7 @@ OPTIMIZER_TYPE = 'adam'  # "sgd" or "adam"
 LR = 1e-5  # learn rate
 LR_DECAY = None
 
-DATASET_TYPE = 'toy'  # "toy" or "timit"
+DATASET_TYPE = 'timit'  # "toy" or "timit"
 
 CTC_DECODER_TYPE = 'beam'
 # "greedy" or "beam", beam is slower but gives better result

@@ -54,7 +54,8 @@ class TimitDataset(Dataset):
                 text_indices[idx:idx+l, 1] = np.arange(l)
                 idx += l
 
-            yield signals, text_indices, text_values, (batch_size, txt_len)
+            text_shape = (batch_size, txt_len)
+            yield signals, (text_indices, text_values, text_shape)
         if tot_size % batch_size:
             sig_len = len(signals_li[-1])
             txt_len = max(map(len, texts_li[-batch_size:]))
