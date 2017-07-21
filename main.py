@@ -11,6 +11,7 @@ from sys import stdout
 from itertools import product
 from functools import reduce
 import os
+import copy
 
 import nltk
 import numpy as np
@@ -20,7 +21,7 @@ try:
     import warpctc_tensorflow
 except Exception as e:
     if type(e).__name__ in ['ImportError', 'ModuleNotFoundError']:
-        print("Warning: not using warp_ctc, performance may be worse.")
+        print("Warning: not using warp-ctc, performance may degrade.")
     else:
         raise
 
@@ -138,7 +139,7 @@ class Model(object):
         x_shp[t_axis], x_shp[0] = x_shp[0], x_shp[t_axis]
         idim = x_shp[axis]
         assert isinstance(idim, int)
-        h_shp = x_shp[1:].copy()
+        h_shp = copy.copy(x_shp[1:])
         h_shp[axis-1] = hdim
         with tf.variable_scope(name):
             zero_init = tf.constant_initializer(0.)
@@ -424,10 +425,12 @@ def main():
     # TODO inference
 
 def debug_test():
-    x = np.random.randint(0, 2, (32, 32, 32))
-    y = np.random.randint(0, 2, (32, 32, 32))
-    d = batch_levenshtein(x, y)
-    import pdb; pdb.set_trace()
+    print('Building model ... ', end='')
+    model = Model()
+    model.build()
+    print('done')
+    stdout.flush()
+    model.reset()
 
 
 if __name__ == '__main__':
