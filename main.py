@@ -22,7 +22,8 @@ try:
     import warpctc_tensorflow
 except Exception as e:
     if type(e).__name__ in ['ImportError', 'ModuleNotFoundError']:
-        stdout.write("Warning: not using warp-ctc, performance may degrade.")
+        stdout.write("Warning: not using warp-ctc, performance may degrade.\n")
+        stdout.flush()
     else:
         raise
 

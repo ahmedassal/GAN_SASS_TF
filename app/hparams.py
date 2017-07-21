@@ -16,9 +16,9 @@ FLOATX = 'float32'  # default type for float
 INTX = 'int32'  # defualt type for int
 DROPOUT_PROB = 0.3  # probability of dropout
 
-SEPARATOR_TYPE = 'toy'
+SEPARATOR_TYPE = 'bilstm-v1'
 RECOGNIZER_TYPE = 'bilstm-ctc-v1'
-DISCRIMINATOR_TYPE = 'toy'
+DISCRIMINATOR_TYPE = 'bilstm-3way-v1'
 
 OPTIMIZER_TYPE = 'adam'  # "sgd" or "adam"
 LR = 1e-5  # learn rate
