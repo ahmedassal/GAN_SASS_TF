@@ -369,7 +369,8 @@ class Model(object):
             tf.summary.scalar('ae_loss', s_autoencoder_loss)
 
         # apply optimizer
-        ozer = hparams.get_optimizer()(learn_rate=hparams.LR)
+        ozer = hparams.get_optimizer()(
+            learn_rate=hparams.LR, lr_decay=hparams.LR_DECAY)
 
         v_params_li = tf.trainable_variables()
         v_gparams_li = [v for v in v_params_li if v.name.startswith('G/')]

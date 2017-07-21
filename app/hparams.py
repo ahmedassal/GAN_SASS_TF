@@ -20,7 +20,6 @@ SEPARATOR_TYPE = 'toy'
 RECOGNIZER_TYPE = 'bilstm-ctc-v1'
 DISCRIMINATOR_TYPE = 'toy'
 
-# TODO add ADAM and other ozers
 OPTIMIZER_TYPE = 'adam'  # "sgd" or "adam"
 LR = 1e-5  # learn rate
 LR_DECAY = None
