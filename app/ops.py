@@ -132,3 +132,66 @@ def lyr_gru(name, s_x, v_cell, axis=-1, op_linear=lyr_linear):
         s_cell_new = tf.tanh(s_cell_new)
         s_cell_tp1 = v_cell * s_igate + s_cell_new * (1.-s_igate)
     return s_cell_tp1
+
+
+def batch_snr(clear_signal, noisy_signal):
+    '''
+    batched signal to noise raio, assuming zero mean
+
+    Args:
+        clear_signal: batched array
+        noisy_signal: batched_array
+    '''
+    clear_signal_shp = clear_signal.get_shape().as_list()
+    noisy_signal_shp = noisy_signal.get_shape().as_list()
+    ndim = len(clear_signal_shp)
+    reduce_axes = list(range(1, ndim))
+    assert len(noisy_signal_shp) == ndim
+    noise = clear_signal - noisy_signal
+
+    if reduce_axes:
+        signal_pwr = tf.reduce_mean(
+            tf.square(clear_signal), axis=reduce_axes)
+        noise_pwr = tf.reduce_mean(
+            tf.square(noise), axis=reduce_axes)
+    else:
+        signal_pwr = tf.square(clear_signal)
+        noise_pwr = tf.square(noise)
+
+    coeff = 4.342944819
+    return coeff * (tf.log(signal_pwr) - tf.log(noise_pwr))
+
+def batch_cross_snr(clear_signal, noisy_signal):
+    '''
+    signal to noise raio, assuming zero mean
+
+    Args:
+        clear_signal: array of shape [batch_size, m, ...]
+        noisy_signal: array of shape [batch_size, n, ...]
+
+    Returns:
+        array of shape [batch_size, m, n]
+    '''
+    clear_signal_shp = clear_signal.get_shape().as_list()
+    noisy_signal_shp = noisy_signal.get_shape().as_list()
+    ndim = len(clear_signal_shp)
+    assert len(noisy_signal_shp) == ndim
+    assert ndim >= 2
+
+
+    clear_signal = tf.expand_dims(clear_signal, 2)  # [b, m, 1, ...]
+    noisy_signal = tf.expand_dims(clear_signal, 1)  # [b, 1, n, ...]
+    noise = clear_signal - noisy_signal
+    reduce_axes = list(range(3, ndim+1))
+
+    if reduce_axes:
+        signal_pwr = tf.reduce_mean(
+            tf.square(clear_signal), axis=reduce_axes)
+        noise_pwr = tf.reduce_mean(
+            tf.square(noise), axis=reduce_axes)
+    else:
+        signal_pwr = tf.square(clear_signal)
+        noise_pwr = tf.square(noise)
+
+    coeff = 4.342944819
+    return coeff * (tf.log(signal_pwr) - tf.log(noise_pwr))
