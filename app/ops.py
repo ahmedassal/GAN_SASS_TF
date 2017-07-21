@@ -34,7 +34,10 @@ def lyr_linear(
             'W', [idim, odim],
             initializer=w_init,
             dtype=hparams.FLOATX)
-        if ndim == 2:
+        if ndim == 1:
+            s_y = tf.matmul(tf.expand_dims(s_x, 0), v_w)
+            s_y = tf.squeeze(s_y, 0)
+        elif ndim == 2:
             if axis % 2 == 1:
                 s_y = tf.matmul(s_x, v_w)
             else:
