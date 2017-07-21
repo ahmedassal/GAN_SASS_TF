@@ -27,13 +27,21 @@ def lyr_linear(
     x_shape = s_x.get_shape().as_list()
     idim = x_shape[axis]
     ndim = len(x_shape)
+    assert -ndim <= axis < ndim
     assert isinstance(idim, int)
     with tf.variable_scope(name):
         v_w = tf.get_variable(
             'W', [idim, odim],
             initializer=w_init,
             dtype=hparams.FLOATX)
-        s_y = tf.tensordot(s_x, v_w, [[axis], [0]])
+        if ndim == 2:
+            if axis % 2 == 1:
+                s_y = tf.matmul(s_x, v_w)
+            else:
+                s_y = tf.matmul(tf.transpose(s_x), v_w)
+                s_y = tf.transpose(s_x)
+        else:
+            s_y = tf.tensordot(s_x, v_w, [[axis], [0]])
         if bias:
             if b_init is None:
                 b_init = tf.constant_initializer(1., dtype=hparams.FLOATX)
