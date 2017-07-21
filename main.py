@@ -22,7 +22,7 @@ try:
     import warpctc_tensorflow
 except Exception as e:
     if type(e).__name__ in ['ImportError', 'ModuleNotFoundError']:
-        print("Warning: not using warp-ctc, performance may degrade.")
+        stdout.write("Warning: not using warp-ctc, performance may degrade.")
     else:
         raise
 
@@ -38,6 +38,9 @@ g_sess = tf.Session()
 g_ctc_decoder = dict(
     beam=tf.nn.ctc_beam_search_decoder,
     greedy=tf.nn.ctc_greedy_decoder)[hparams.CTC_DECODER_TYPE]
+g_args = None
+g_model = None
+g_dataset = None
 
 def _dict_add(dst, src):
     for k,v in src.items():
@@ -49,6 +52,48 @@ def _dict_add(dst, src):
 
 def _dict_format(di):
     return ' '.join('='.join((k, str(v))) for k,v in di.items())
+
+
+def prompt_yesno(q_):
+    while True:
+        action=input(q_ + ' [Y]es [n]o : ')
+        if action == 'Y':
+            return True
+        elif action == 'n':
+            return False
+
+
+def prompt_overwrite(filename_):
+    '''
+    If save file obj_.__getattribute__(attr_) exists, prompt user to
+    give up, overwrite, or make copy.
+
+    obj_.__getattribute__(attr_) should be a string, the string may be
+    changed after prompt
+    '''
+    try:
+        savfile = open(filename_, 'x')
+    except FileExistsError:
+        while True:
+            action = input(
+                'file %s exists, overwrite? [Y]es [n]o [c]opy : '%filename_)
+            if action == 'Y':
+                return filename_
+            elif action == 'n':
+                return ''
+            elif action == 'c':
+                i=0
+                while True:
+                    new_filename = filename_+'.'+str(i)
+                    try:
+                        savfile = open(new_filename, 'x')
+                    except FileExistsError:
+                        i+=1
+                        continue
+                    break
+                return new_filename
+    else:
+        savfile.close()
 
 
 def batch_levenshtein(x, y):
@@ -85,9 +130,7 @@ def batch_wer(x, y, fn_decoder):
         x: int array, hypothesis
         y: int array, target
         fn_decoder: function to convert int vector into string
-
-    Returns: int32 array
-    '''
+Returns: int32 array '''
     x_shp = x.shape
     y_shp = y.shape
     assert x_shp[:-1] == y_shp[:-1]
@@ -165,33 +208,20 @@ class Model(object):
                 op_lstm, s_x, initializer=(v_cell, v_hid))
         return s_hid_seq if t_axis == 0 else tf.transpose(s_hid_seq, perm)
 
-    def save_params(self, save_path, step):
-        model_name = self.name
-        if not os.path.exists(save_path):
-            os.makedirs(save_path)
-        if not hasattr(self, 'saver'):
-            self.saver = tf.train.Saver()
-        self.saver.save(self.sess,
-                        os.path.join(save_path, model_name),
+    def save_params(self, filename, step=None):
+        global g_sess
+        save_dir = os.path.dirname(os.path.abspath(filename))
+        if not os.path.exists(save_dir):
+            os.makedirs(save_dir)
+        self.saver.save(g_sess,
+                        filename,
                         global_step=step)
 
-    def load_params(self, save_path, model_file=None):
-        if not os.path.exists(save_path):
-            print('[!] Checkpoints path does not exist...')
-            return False
-        print('[*] Reading checkpoints...')
-        if model_file is None:
-            ckpt = tf.train.get_checkpoint_state(save_path)
-            if ckpt and ckpt.model_checkpoint_path:
-                ckpt_name = os.path.basename(ckpt.model_checkpoint_path)
-            else:
-                return False
-        else:
-            ckpt_name = model_file
-        if not hasattr(self, 'saver'):
-            self.saver = tf.train.Saver()
-        self.saver.restore(self.sess, os.path.join(save_path, ckpt_name))
-        print('[*] Read {}'.format(ckpt_name))
+    def load_params(self, filename):
+        # if not os.path.exists(filename):
+            # stdout.write('Parameter file "%s" does not exist\n' % filename)
+            # return False
+        self.saver.restore(g_sess, filename)
         return True
 
     def build(self):
@@ -342,13 +372,13 @@ class Model(object):
         ozer = hparams.get_optimizer()(learn_rate=hparams.LR)
 
         v_params_li = tf.trainable_variables()
-        s_gparams_li = [v for v in v_params_li if v.name.startswith('G/')]
-        s_dparams_li = [v for v in v_params_li if v.name.startswith('D/')]
+        v_gparams_li = [v for v in v_params_li if v.name.startswith('G/')]
+        v_dparams_li = [v for v in v_params_li if v.name.startswith('D/')]
 
         op_fit_generator = ozer.minimize(
-            s_autoencoder_loss - s_gan_loss, var_list=s_gparams_li)
+            s_autoencoder_loss - s_gan_loss, var_list=v_gparams_li)
         op_fit_discriminator = ozer.minimize(
-            s_gan_loss, var_list=s_dparams_li)
+            s_gan_loss, var_list=v_dparams_li)
         self.op_init_params = tf.variables_initializer(v_params_li)
         self.op_init_states = tf.variables_initializer(
             list(self.s_states_di.values()))
@@ -359,20 +389,21 @@ class Model(object):
             self.all_summary,
             dict(gan_loss=s_gan_loss, ae_loss=s_autoencoder_loss),
             op_fit_generator, op_fit_discriminator]
+        # TODO need more metrics on test fetches
+        self.test_fetches = [
+            self.all_summary,
+            dict(gan_loss=s_gan_loss, ae_loss=s_autoencoder_loss),
+            op_fit_generator, op_fit_discriminator]
 
         self.infer_fetches = [dict(
             signals=s_separated_signals,
             texts=sS_pred_texts)]
 
-        # FOR DEBUGGING
-        # g_sess.run([self.op_init_params])
-        # _feed = {
-            # s_src_signals : np.random.rand(4, 3, 128, 256),
-            # sS_src_texts : np.random.randint(0, hparams.CHARSET_SIZE, (4,3,32)) }
-        # ret = g_sess.run([s_gan_loss], _feed)
+        self.saver = tf.train.Saver(var_list=v_params_li)
 
 
-    def train(self, n_epoch, dataset=None):
+    def train(self, n_epoch, dataset):
+        global g_args
         train_writer = tf.summary.FileWriter(hparams.SUMMARY_DIR, g_sess.graph)
         for i_epoch in range(n_epoch):
             cli_report = {}
@@ -380,20 +411,39 @@ class Model(object):
                 to_feed = dict(zip(self.feed_keys, data_pt))
                 step_summary, step_fetch = g_sess.run(
                     self.train_fetches, to_feed)[:2]
+                self.reset_state()
                 train_writer.add_summary(step_summary)
                 stdout.write('.')
                 stdout.flush()
                 _dict_add(cli_report, step_fetch)
-            print('Epoch %d/%d %s' % (
+            if g_args.save_on_epoch:
+                self.save_params(self.name, i_epoch+1)
+                stdout.write('S')
+            stdout.write('\nEpoch %d/%d %s' % (
                 i_epoch+1, n_epoch, _dict_format(cli_report)))
+            # TODO add validation set
             stdout.write('\n')
             stdout.flush()
+
+    def test(self, dataset):
+        cli_report = {}
+        for data_pt in dataset.epoch('test', hparams.BATCH_SIZE * hparams.MAX_N_SIGNAL):
+            to_feed = dict(zip(self.feed_keys, data_pt))
+            step_summary, step_fetch = g_sess.run(
+                self.test_fetches, to_feed)[:2]
+            train_writer.add_summary(step_summary)
+            stdout.write('.')
+            stdout.flush()
+            _dict_add(cli_report, step_fetch)
+        stdout.write('Epoch %d/%d %s' % (
+            i_epoch+1, n_epoch, _dict_format(cli_report)))
 
     def reset(self):
         '''re-initialize parameters, resets timestep'''
         g_sess.run([self.op_init_params, self.op_init_states])
 
     def reset_state(self):
+        '''reset RNN states'''
         g_sess.run([self.op_init_states])
 
     def parameter_count(self):
@@ -406,32 +456,66 @@ class Model(object):
 
 
 def main():
-    # TODO parse cmd args
+    global g_args, g_model, g_dataset
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-m', '--mode',
+        default='train', help='Mode, "train", "test" or "interactive"')
+    parser.add_argument('-i', '--input-pfile',
+        help='path to input model parameter file')
+    parser.add_argument('-o', '--output-pfile',
+        help='path to output model parameters file')
+    parser.add_argument('-ne', '--num-epoch',
+        type=int, default=10, help='number of training epoch')
+    parser.add_argument('--save-on-epoch',
+        action='store_true', help='saves parameter after each epoch')
+    g_args = parser.parse_args()
+
     # TODO manage device
-    print('Preparing dataset ... ', end='')
+    stdout.write('Preparing dataset ... ')
     stdout.flush()
     g_dataset = hparams.get_dataset()()
     g_dataset.install_and_load()
-    print('done')
+    stdout.write('done\n')
     stdout.flush()
 
-    print('Building model ... ', end='')
-    model = Model()
-    model.build()
-    print('done')
-    stdout.flush()
-    model.reset()
-    model.train(n_epoch=10, dataset=g_dataset)
+    stdout.write('Building model ... ')
+    g_model = Model()
+    g_model.build()
+    stdout.write('done\n')
 
-    # TODO inference
+    if g_args.input_pfile is not None:
+        stdout.write('Loading paramters from %s ... ' % g_args.input_pfile)
+        g_model.load_params(g_args.input_pfile)
+        stdout.write('done\n')
+    stdout.flush()
+    g_model.reset()
+
+    if g_args.mode == 'interactive':
+        print('Now in interactive mode, you should run this with python -i')
+        return
+    elif g_args.mode == 'train':
+        g_model.train(n_epoch=g_args.num_epoch, dataset=g_dataset)
+        if g_args.output_pfile is not None:
+            stdout.write('Saving parameters into %s ... ' % g_args.output_pfile)
+            stdout.flush()
+            g_model.save_params(g_args.output_pfile)
+            stdout.write('done\n')
+            stdout.flush()
+    elif g_args.mode == 'test':
+        # TODO test
+        raise NotImplementedError()
+    else:
+        raise ValueError(
+            'Unknow mode "%s", expected "train" or "test"' % g_args.mode)
+
 
 def debug_test():
-    print('Building model ... ', end='')
-    model = Model()
-    model.build()
-    print('done')
+    stdout.write('Building model ... ')
+    g_model = Model()
+    g_model.build()
+    stdout.write('done')
     stdout.flush()
-    model.reset()
+    g_model.reset()
 
 
 if __name__ == '__main__':
