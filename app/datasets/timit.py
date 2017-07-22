@@ -1,7 +1,7 @@
 import os
 from six.moves import cPickle as pickle
-import string
-from functools import reduce
+import string from functools import reduce
+import gc
 
 import numpy as np
 
@@ -90,9 +90,11 @@ class TimitDataset(Dataset):
                         FILE_NOT_FOUND_MSG % filepath)
 
             with open(filepath, 'rb') as f:
+                gc.disable()
                 all_data = [pickle.load(f)]
                 all_data.append(pickle.load(f))
                 all_data.append(pickle.load(f))
+                gc.enable()
             self.subset[subset] = all_data
 
     @classmethod
