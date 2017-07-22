@@ -429,7 +429,8 @@ class Model(object):
                 s_asr_loss = tf.nn.ctc_loss(
                     sS_src_texts,
                     s_pred_texts,
-                    s_seqlen)
+                    s_seqlen,
+                    ignore_longer_outputs_than_inputs=True)
                 s_asr_loss = tf.reduce_mean(s_asr_loss)
             else:
                 raise NotImplementedError(
