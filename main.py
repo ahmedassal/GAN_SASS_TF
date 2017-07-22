@@ -334,11 +334,18 @@ class Model(object):
             s_guess_texts = tf.pad(s_guess_texts, ((0,0), (0,1), (0,0)))
 
             with tf.variable_scope('dtor', reuse=False) as scope:
-                s_guess_t = discriminator(s_truth_signals, s_truth_texts)
-                scope.reuse_variables()
-                s_guess_f = discriminator(
-                    s_separated_signals,
-                    s_guess_texts)
+                if hparams.USE_ASR:
+                    s_guess_t = discriminator(s_truth_signals, s_truth_texts)
+                    scope.reuse_variables()
+                    s_guess_f = discriminator(
+                        s_separated_signals,
+                        s_guess_texts)
+                else:
+                    s_guess_t = discriminator(s_truth_signals)
+                    scope.reuse_variables()
+                    s_guess_f = discriminator(
+                        s_separated_signals,
+                        s_guess_texts)
             s_truth = tf.concat([
                 tf.constant(
                     hparams.CLS_REAL_SIGNAL,
@@ -426,6 +433,9 @@ class Model(object):
             # TODO add validation set
             stdout.write('\n')
             stdout.flush()
+
+    def train_asr(self, n_epoch, dataset):
+        raise NotImplementedError()
 
     def test(self, dataset):
         cli_report = {}

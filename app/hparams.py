@@ -11,14 +11,14 @@ FFT_SIZE = 256  # width of spectrogram
 CHARSET_SIZE = 27  # size of character set, excluding "blank" character
 EPS = 1e-7  # to prevent sqrt() log() etc cause NaN
 RELU_LEAKAGE = 0.3  # how leaky relu is, 0 -> relu, 1 -> linear
-USE_TEXT = False  # whether to integrate speech recognizer into GAN training
+USE_ASR = False  # whether to integrate speech recognizer into GAN training
 FLOATX = 'float32'  # default type for float
 INTX = 'int32'  # defualt type for int
 DROPOUT_PROB = 0.3  # probability of dropout
 
-SEPARATOR_TYPE = 'bilstm-v1'
-RECOGNIZER_TYPE = 'bilstm-ctc-v1'
-DISCRIMINATOR_TYPE = 'bilstm-3way-v1'
+SEPARATOR_TYPE = 'toy'
+RECOGNIZER_TYPE = 'toy'
+DISCRIMINATOR_TYPE = 'toy'
 
 OPTIMIZER_TYPE = 'adam'  # "sgd" or "adam"
 LR = 1e-5  # learn rate
