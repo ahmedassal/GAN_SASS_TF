@@ -1,6 +1,7 @@
 import os
 from six.moves import cPickle as pickle
-import string from functools import reduce
+import string
+from functools import reduce
 import gc
 
 import numpy as np
