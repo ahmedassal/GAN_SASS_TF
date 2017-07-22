@@ -234,20 +234,22 @@ class Model(object):
         discriminator = hparams.get_discriminator()(
             self, 'discriminator')
 
+
+        # ===================
+        # build the GAN model
+
         bsize = hparams.BATCH_SIZE * hparams.MAX_N_SIGNAL
         input_shape = [bsize, None, hparams.FFT_SIZE]
         single_signal_shape = [hparams.BATCH_SIZE, None, hparams.FFT_SIZE]
         del(single_signal_shape[1])
 
-        # build the GAN model
         s_src_signals = tf.placeholder(
             hparams.FLOATX,
             input_shape,
             name='source_signal')
         sS_src_texts = tf.sparse_placeholder(
             hparams.INTX,
-            name='source_text'
-        )
+            name='source_text')
         with tf.variable_scope('G'):
             # s_texts_dense = tf.sparse_to_dense(
                 # sS_src_texts.indices,
@@ -269,17 +271,15 @@ class Model(object):
                 dtype=hparams.FLOATX)
             s_mixed_signals += s_noise_signal
             s_separated_signals = separator(s_mixed_signals)
-            sS_pred_texts = recognizer(s_separated_signals)
+            s_pred_texts = recognizer(s_separated_signals)
             if recognizer.IS_CTC:
                 bsize = hparams.BATCH_SIZE * (hparams.MAX_N_SIGNAL+1)
-                sS_pred_texts = tf.transpose(
-                    sS_pred_texts, [1, 0, 2])
+                s_pred_texts = tf.transpose(
+                    s_pred_texts, [1, 0, 2])
                 s_seqlen = tf.tile(
-                    tf.shape(sS_pred_texts)[1:2],
+                    tf.shape(s_pred_texts)[1:2],
                     [bsize])
-                s_asr_loss = tf.nn.ctc_loss(
-                    sS_src_texts, sS_pred_texts, s_seqlen)
-                sS_pred_texts = g_ctc_decoder(sS_pred_texts, s_seqlen)[0][0]
+                sS_pred_texts = g_ctc_decoder(s_pred_texts, s_seqlen)[0][0]
             s_autoencoder_loss = tf.reduce_mean(
                 tf.square(
                     tf.reduce_sum(
@@ -321,13 +321,13 @@ class Model(object):
                 -1, hparams.CHARSET_SIZE])
 
             # convert predicted text to dense one-hot
-            s_pred_texts = tf.sparse_to_dense(
+            s_pred_texts_oh = tf.sparse_to_dense(
                 sS_pred_texts.indices,
                 sS_pred_texts.dense_shape,
                 sS_pred_texts.values,
                 default_value=hparams.CHARSET_SIZE)
             s_guess_texts = tf.one_hot(
-                s_pred_texts,
+                s_pred_texts_oh,
                 hparams.CHARSET_SIZE,
                 dtype=hparams.FLOATX)
             # pad additional zero at end to make sure no zero length text
@@ -343,9 +343,7 @@ class Model(object):
                 else:
                     s_guess_t = discriminator(s_truth_signals)
                     scope.reuse_variables()
-                    s_guess_f = discriminator(
-                        s_separated_signals,
-                        s_guess_texts)
+                    s_guess_f = discriminator(s_separated_signals)
             s_truth = tf.concat([
                 tf.constant(
                     hparams.CLS_REAL_SIGNAL,
@@ -367,14 +365,15 @@ class Model(object):
                 labels=s_lies, logits=s_guess_f)
             s_gan_loss = tf.reduce_mean(s_gan_loss_t + s_gan_loss_f)
 
+        # ===============
         # prepare summary
         # TODO add impl & summary for word error rate
         # TODO add impl & summary for SNR
 
         # FIXME gan_loss summary is broken
         with tf.name_scope('summary'):
-            tf.summary.scalar('gan_loss', s_gan_loss)
-            tf.summary.scalar('ae_loss', s_autoencoder_loss)
+            s_gan_loss_summary = tf.summary.scalar('gan_loss', s_gan_loss)
+            s_ae_loss_summary = tf.summary.scalar('ae_loss', s_autoencoder_loss)
 
         # apply optimizer
         ozer = hparams.get_optimizer()(
@@ -392,15 +391,16 @@ class Model(object):
         self.op_init_states = tf.variables_initializer(
             list(self.s_states_di.values()))
 
-        self.all_summary = tf.summary.merge_all()
+        train_summary = tf.summary.merge(
+            [s_gan_loss_summary, s_ae_loss_summary])
         self.feed_keys = [s_src_signals, sS_src_texts]
         self.train_fetches = [
-            self.all_summary,
+            train_summary,
             dict(gan_loss=s_gan_loss, ae_loss=s_autoencoder_loss),
             op_fit_generator, op_fit_discriminator]
         # TODO need more metrics on test fetches
         self.test_fetches = [
-            self.all_summary,
+            train_summary,
             dict(gan_loss=s_gan_loss, ae_loss=s_autoencoder_loss),
             op_fit_generator, op_fit_discriminator]
 
@@ -410,13 +410,57 @@ class Model(object):
 
         self.saver = tf.train.Saver(var_list=v_params_li)
 
+        # ===================
+        # build the ASR model
+
+        ASR_BATCH_SIZE = hparams.BATCH_SIZE * (hparams.MAX_N_SIGNAL+1)
+        input_shape = [ASR_BATCH_SIZE, None, hparams.FFT_SIZE]
+        s_src_signals_asr = tf.placeholder(
+            hparams.FLOATX,
+            input_shape,
+            name='source_signal_asr')
+
+        with tf.variable_scope('G', reuse=True):
+            s_pred_texts = recognizer(s_src_signals_asr)
+            # batch-major -> time-major
+            s_pred_texts = tf.transpose(s_pred_texts, (1,0,2))
+            s_seqlen = tf.tile(tf.shape(s_pred_texts)[1:2], [ASR_BATCH_SIZE])
+            if recognizer.IS_CTC:
+                s_asr_loss = tf.nn.ctc_loss(
+                    sS_src_texts,
+                    s_pred_texts,
+                    s_seqlen)
+                s_asr_loss = tf.reduce_mean(s_asr_loss)
+            else:
+                raise NotImplementedError(
+                    'Non-CTC ASR training routine not implemented.')
+            sS_pred_texts = g_ctc_decoder(s_pred_texts, s_seqlen)[0][0]
+            sS_pred_texts = tf.cast(sS_pred_texts, hparams.INTX)
+            s_wer = tf.edit_distance(
+                sS_pred_texts, sS_src_texts, normalize=True)
+            s_wer = tf.reduce_mean(s_wer)
+
+        self.op_fit_asr = ozer.minimize(s_asr_loss, var_list=v_gparams_li)
+        asr_train_summary = []
+        with tf.name_scope('summary'):
+            asr_train_summary.append(tf.summary.scalar('WER', s_wer))
+            asr_train_summary.append(tf.summary.scalar('CTC_loss', s_asr_loss))
+        asr_train_summary = tf.summary.merge(asr_train_summary)
+
+        self.asr_feed_keys = [s_src_signals_asr, sS_src_texts]
+        self.asr_train_fetches = [
+            asr_train_summary,
+            dict(WER=s_wer, CTC_loss=s_asr_loss),
+            self.op_fit_asr]
+
 
     def train(self, n_epoch, dataset):
         global g_args
         train_writer = tf.summary.FileWriter(hparams.SUMMARY_DIR, g_sess.graph)
         for i_epoch in range(n_epoch):
             cli_report = {}
-            for data_pt in dataset.epoch('train', hparams.BATCH_SIZE * hparams.MAX_N_SIGNAL):
+            for data_pt in dataset.epoch(
+                    'train', hparams.BATCH_SIZE * hparams.MAX_N_SIGNAL):
                 to_feed = dict(zip(self.feed_keys, data_pt))
                 step_summary, step_fetch = g_sess.run(
                     self.train_fetches, to_feed)[:2]
@@ -435,11 +479,35 @@ class Model(object):
             stdout.flush()
 
     def train_asr(self, n_epoch, dataset):
-        raise NotImplementedError()
+        global g_args
+        train_writer = tf.summary.FileWriter(
+            hparams.ASR_SUMMARY_DIR, g_sess.graph)
+        ASR_BATCH_SIZE = hparams.BATCH_SIZE * (hparams.MAX_N_SIGNAL+1)
+        for i_epoch in range(n_epoch):
+            cli_report = {}
+            for data_pt in dataset.epoch(
+                    'train', ASR_BATCH_SIZE):
+                to_feed = dict(zip(self.asr_feed_keys, data_pt))
+                step_summary, step_fetch = g_sess.run(
+                    self.asr_train_fetches, to_feed)[:2]
+                self.reset_state()
+                train_writer.add_summary(step_summary)
+                stdout.write('.')
+                stdout.flush()
+                _dict_add(cli_report, step_fetch)
+            if g_args.save_on_epoch:
+                self.save_params(self.name, i_epoch+1)
+                stdout.write('S')
+            stdout.write('\nEpoch %d/%d %s' % (
+                i_epoch+1, n_epoch, _dict_format(cli_report)))
+            # TODO add validation set
+            stdout.write('\n')
+            stdout.flush()
 
     def test(self, dataset):
         cli_report = {}
-        for data_pt in dataset.epoch('test', hparams.BATCH_SIZE * hparams.MAX_N_SIGNAL):
+        for data_pt in dataset.epoch(
+                'test', hparams.BATCH_SIZE * hparams.MAX_N_SIGNAL):
             to_feed = dict(zip(self.feed_keys, data_pt))
             step_summary, step_fetch = g_sess.run(
                 self.test_fetches, to_feed)[:2]
