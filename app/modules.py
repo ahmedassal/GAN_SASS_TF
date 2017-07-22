@@ -1,3 +1,5 @@
+import copy
+
 import tensorflow as tf
 
 import app.hparams as hparams
@@ -140,7 +142,7 @@ class ToyRecognizer(Recognizer):
         charset_size = hparams.CHARSET_SIZE
         text_length = 16
 
-        out_shape = inp_shape.copy()
+        out_shape = copy.copy(inp_shape)
         out_shape[-1] = charset_size
         out_shape[-2] = text_length
 
