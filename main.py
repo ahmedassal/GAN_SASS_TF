@@ -577,7 +577,7 @@ def main():
     g_args = parser.parse_args()
 
     # TODO manage device
-    stdout.write('Preparing dataset ... ')
+    stdout.write('Preparing dataset %s ... ' % hparams.DATASET_TYPE)
     stdout.flush()
     g_dataset = hparams.get_dataset()()
     g_dataset.install_and_load()
