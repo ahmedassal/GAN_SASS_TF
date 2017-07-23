@@ -367,10 +367,10 @@ class Model(object):
             s_gan_loss = tf.reduce_mean(s_gan_loss_t + s_gan_loss_f)
             s_cross_snr = ops.batch_cross_snr(
                 s_src_signals, s_separated_signals)
-            # drop the one with highest SNR (likely separated noise)
+            # drop the one with lowest SNR (likely separated noise)
             s_snr, _ = tf.nn.top_k(
-                -s_cross_snr, k=hparams.MAX_N_SIGNAL, sorted=False)
-            s_snr = -tf.reduce_mean(s_snr)
+                s_cross_snr, k=hparams.MAX_N_SIGNAL, sorted=False)
+            s_snr = tf.reduce_mean(s_snr)
 
         # ===============
         # prepare summary

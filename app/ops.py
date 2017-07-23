@@ -200,7 +200,7 @@ def batch_cross_snr(clear_signal, noisy_signal):
 
 
     clear_signal = tf.expand_dims(clear_signal, 2)  # [b, m, 1, ...]
-    noisy_signal = tf.expand_dims(clear_signal, 1)  # [b, 1, n, ...]
+    noisy_signal = tf.expand_dims(noisy_signal, 1)  # [b, 1, n, ...]
     noise = clear_signal - noisy_signal
     reduce_axes = list(range(3, ndim+1))
 
@@ -214,4 +214,5 @@ def batch_cross_snr(clear_signal, noisy_signal):
         noise_pwr = tf.square(noise)
 
     coeff = 4.342944819
-    return coeff * (tf.log(signal_pwr + hparams.EPS) - tf.log(noise_pwr + hparams.EPS))
+    return coeff * (
+        tf.log(signal_pwr + hparams.EPS) - tf.log(noise_pwr + hparams.EPS))
