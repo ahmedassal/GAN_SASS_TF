@@ -591,6 +591,9 @@ def main():
 
 
 def debug_test():
+    print('Separator type: "%s"' % hparams.SEPARATOR_TYPE)
+    print('Recognizer type: "%s"' % hparams.RECOGNIZER_TYPE)
+    print('DISCRIMINATOR_TYPE type: "%s"' % hparams.DISCRIMINATOR_TYPE)
     stdout.write('Building model ... ')
     g_model = Model()
     g_model.build()
