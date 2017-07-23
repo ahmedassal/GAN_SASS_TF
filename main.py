@@ -17,6 +17,7 @@ import copy
 import nltk
 import numpy as np
 import tensorflow as tf
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 try:
     import warpctc_tensorflow
@@ -364,16 +365,26 @@ class Model(object):
             s_gan_loss_f = tf.nn.softmax_cross_entropy_with_logits(
                 labels=s_lies, logits=s_guess_f)
             s_gan_loss = tf.reduce_mean(s_gan_loss_t + s_gan_loss_f)
+            s_cross_snr = ops.batch_cross_snr(
+                s_src_signals, s_separated_signals)
+            # drop the one with highest SNR (likely separated noise)
+            s_snr, _ = tf.nn.top_k(
+                -s_cross_snr, k=hparams.MAX_N_SIGNAL, sorted=False)
+            s_snr = -tf.reduce_mean(s_snr)
 
         # ===============
         # prepare summary
         # TODO add impl & summary for word error rate
-        # TODO add impl & summary for SNR
 
         # FIXME gan_loss summary is broken
         with tf.name_scope('summary'):
             s_gan_loss_summary = tf.summary.scalar('gan_loss', s_gan_loss)
             s_ae_loss_summary = tf.summary.scalar('ae_loss', s_autoencoder_loss)
+            s_snr_summary = tf.summary.scalar('SNR', s_snr)
+
+            s_gan_loss_summary_test = tf.summary.scalar('gan_loss_test', s_gan_loss)
+            s_ae_loss_summary_test = tf.summary.scalar('ae_loss_test', s_autoencoder_loss)
+            s_snr_summary_test = tf.summary.scalar('SNR_test', s_snr)
 
         # apply optimizer
         ozer = hparams.get_optimizer()(
@@ -392,17 +403,24 @@ class Model(object):
             list(self.s_states_di.values()))
 
         train_summary = tf.summary.merge(
-            [s_gan_loss_summary, s_ae_loss_summary])
+            [s_gan_loss_summary, s_ae_loss_summary, s_snr_summary])
+        test_summary = tf.summary.merge(
+            [s_gan_loss_summary_test, s_ae_loss_summary_test, s_snr_summary_test])
         self.feed_keys = [s_src_signals, sS_src_texts]
         self.train_fetches = [
             train_summary,
-            dict(gan_loss=s_gan_loss, ae_loss=s_autoencoder_loss),
+            dict(
+                gan_loss=s_gan_loss,
+                ae_loss=s_autoencoder_loss,
+                SNR=s_snr),
             op_fit_generator, op_fit_discriminator]
         # TODO need more metrics on test fetches
         self.test_fetches = [
-            train_summary,
-            dict(gan_loss=s_gan_loss, ae_loss=s_autoencoder_loss),
-            op_fit_generator, op_fit_discriminator]
+            test_summary,
+            dict(
+                gan_loss=s_gan_loss,
+                ae_loss=s_autoencoder_loss,
+                SNR=s_snr)]
 
         self.infer_fetches = [dict(
             signals=s_separated_signals,
@@ -560,6 +578,7 @@ def main():
     stdout.flush()
 
     stdout.write('Building model ... ')
+    stdout.flush()
     g_model = Model()
     g_model.build()
     stdout.write('done\n')
@@ -593,7 +612,7 @@ def main():
 def debug_test():
     print('Separator type: "%s"' % hparams.SEPARATOR_TYPE)
     print('Recognizer type: "%s"' % hparams.RECOGNIZER_TYPE)
-    print('DISCRIMINATOR_TYPE type: "%s"' % hparams.DISCRIMINATOR_TYPE)
+    print('discriminator type: "%s"' % hparams.DISCRIMINATOR_TYPE)
     stdout.write('Building model ... ')
     g_model = Model()
     g_model.build()

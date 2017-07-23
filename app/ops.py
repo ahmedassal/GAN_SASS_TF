@@ -43,6 +43,13 @@ def lyr_linear(
             else:
                 s_y = tf.matmul(tf.transpose(s_x), v_w)
                 s_y = tf.transpose(s_x)
+        elif (axis+1) % ndim == 0:
+            s_batch_shp = tf.shape(s_x)[:-1]
+            s_x = tf.reshape(
+                s_x,
+                [tf.reduce_prod(s_batch_shp, axis=None), x_shape[-1]])
+            s_y = tf.matmul(s_x, v_w)
+            s_y = tf.reshape(s_y, tf.concat([s_batch_shp, [odim]], axis=0))
         else:
             s_y = tf.tensordot(s_x, v_w, [[axis], [0]])
         if bias:
@@ -152,6 +159,8 @@ def batch_snr(clear_signal, noisy_signal):
     Args:
         clear_signal: batched array
         noisy_signal: batched_array
+
+    Returns: vector of shape [batch_size]
     '''
     clear_signal_shp = clear_signal.get_shape().as_list()
     noisy_signal_shp = noisy_signal.get_shape().as_list()
@@ -205,4 +214,4 @@ def batch_cross_snr(clear_signal, noisy_signal):
         noise_pwr = tf.square(noise)
 
     coeff = 4.342944819
-    return coeff * (tf.log(signal_pwr) - tf.log(noise_pwr))
+    return coeff * (tf.log(signal_pwr + hparams.EPS) - tf.log(noise_pwr + hparams.EPS))
