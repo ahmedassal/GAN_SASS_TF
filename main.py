@@ -366,7 +366,14 @@ class Model(object):
                 labels=s_lies, logits=s_guess_f)
             s_gan_loss = tf.reduce_mean(s_gan_loss_t + s_gan_loss_f)
             s_cross_snr = ops.batch_cross_snr(
-                s_src_signals, s_separated_signals)
+                tf.reshape(s_src_signals, [
+                    hparams.BATCH_SIZE,
+                    hparams.MAX_N_SIGNAL,
+                    -1, hparams.FFT_SIZE]),
+                tf.reshape(s_separated_signals, [
+                    hparams.BATCH_SIZE,
+                    hparams.MAX_N_SIGNAL+1,
+                    -1, hparams.FFT_SIZE]))
             # drop the one with lowest SNR (likely separated noise)
             s_snr, _ = tf.nn.top_k(
                 s_cross_snr, k=hparams.MAX_N_SIGNAL, sorted=False)
