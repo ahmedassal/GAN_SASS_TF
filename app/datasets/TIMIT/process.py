@@ -10,13 +10,12 @@ import scipy.signal as signal
 
 # TODO add license from tensorpack/examples/CTC-TIMIT
 
-# TODO merge these with hparams.py file
-import app.hparams as hparams
+# TODO merge these with py file
 FFT_SIZE = 256
 EPS = 1e-7
 
 # "$" means end of text/phoneme
-CHARSET = set(string.ascii_lowercase + ' $')
+CHARSET = string.ascii_lowercase + ' '
 PHONEME_LIST = (
     '$_aa_ae_ah_ao_aw_ax_ax-h_axr_ay_b_bcl_ch_d_dcl_dh_'
     'dx_eh_el_em_en_eng_epi_er_ey_f_g_gcl_h#_hh_hv_ih_'
@@ -77,7 +76,7 @@ def spectrum_to_feature(freqs):
 
 def feature_to_spectrum(features):
     '''reverse of spectrum_to_feature'''
-    fft_size = hparams.FFT_SIZE
+    fft_size = FFT_SIZE
     features = features.T
     features = np.complex(features[:fft_size//2], features[fft_size//2:])
     features = np.pad(features, [(0, 1), (0, 0)], mode='constant')
@@ -105,7 +104,7 @@ for fname in train_files:
     fm, waveform = wavfile.read(fname)
     if fm != 16000:
         raise ValueError('Sampling rate must be 16k')
-    Zxx = signal.stft(waveform, nperseg=hparams.FFT_SIZE)[2]
+    Zxx = signal.stft(waveform, nperseg=FFT_SIZE)[2]
     stft_feature = spectrum_to_feature(Zxx)
     with open(fname.upper().replace('.WAV', '.TXT'), 'r') as f:
         text = read_timit_txt(f)
@@ -133,7 +132,7 @@ for fname in test_files:
     fm, waveform = wavfile.read(fname)
     if fm != 16000:
         raise ValueError('Sampling rate must be 16k')
-    _, __, Zxx = signal.stft(waveform, nperseg=hparams.FFT_SIZE)
+    _, __, Zxx = signal.stft(waveform, nperseg=FFT_SIZE)
     stft_feature = spectrum_to_feature(Zxx)
     with open(fname.upper().replace('.WAV', '.TXT')) as f:
         text = read_timit_txt(f)
