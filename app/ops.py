@@ -1,6 +1,7 @@
 '''
 collection of commonly used Ops and layers
 '''
+from math import sqrt
 
 import tensorflow as tf
 
@@ -9,7 +10,7 @@ import app.hparams as hparams
 
 def lyr_linear(
         name, s_x, odim,
-        axis=-1, bias=True, w_init=None, b_init=None, reuse=False):
+        axis=-1, bias=True, w_init=None, b_init=None):
     '''
     Like tf.xw_plus_b, but works on arbitrary shape
 
@@ -21,7 +22,6 @@ def lyr_linear(
         bias: boolean, whether to use bias
         w_init: initializer for W
         b_init: initializer for B
-        reuse: bool whether to reuse parameter variables
     '''
     assert isinstance(odim, int)
     x_shape = s_x.get_shape().as_list()
@@ -81,7 +81,9 @@ def relu(s_x, alpha=0.):
     return s_y
 
 
-def lyr_lstm_flat(name, s_x, v_cell, v_hid, axis=-1, op_linear=lyr_linear):
+def lyr_lstm_flat(
+        name, s_x, v_cell, v_hid, axis=-1, op_linear=lyr_linear,
+        w_init=None, b_init=None):
     '''
     Generic LSTM layer that works with arbitrary shape & linear operator
 
@@ -109,7 +111,8 @@ def lyr_lstm_flat(name, s_x, v_cell, v_hid, axis=-1, op_linear=lyr_linear):
 
     with tf.variable_scope(name):
         s_inp = tf.concat([s_x, v_hid], axis=axis)
-        s_act = op_linear('linear', s_inp, hdim*4, axis=axis)
+        s_act = op_linear(
+            'linear', s_inp, hdim*4, axis=axis, w_init=w_init, b_init=b_init)
         s_cell_new, s_gates = tf.split(s_act, [hdim, hdim*3], axis=axis)
         s_cell_new = tf.tanh(s_cell_new)
         s_igate, s_fgate, s_ogate = tf.split(
@@ -119,7 +122,9 @@ def lyr_lstm_flat(name, s_x, v_cell, v_hid, axis=-1, op_linear=lyr_linear):
     return (s_cell_tp1, s_hid_tp1)
 
 
-def lyr_gru(name, s_x, v_cell, axis=-1, op_linear=lyr_linear):
+def lyr_gru_flat(
+        name, s_x, v_cell, axis=-1,
+        op_linear=lyr_linear, w_init=None, b_init=None):
     '''
     Generic GRU layer that works with arbitrary shape & linear operator
 
@@ -146,7 +151,9 @@ def lyr_gru(name, s_x, v_cell, axis=-1, op_linear=lyr_linear):
         s_act = op_linear('gates', s_inp, hdim*2, axis=axis)
         s_rgate, s_igate = tf.split(tf.nn.sigmoid(s_act), 2, axis=axis)
         s_inp2 = tf.concat([s_x, v_cell * s_rgate], axis=axis)
-        s_cell_new = op_linear('linear', s_inp2, hdim, axis=axis)
+        s_cell_new = op_linear(
+            'linear',
+            s_inp2, hdim, axis=axis, w_init=w_init, b_init=b_init)
         s_cell_new = tf.tanh(s_cell_new)
         s_cell_tp1 = v_cell * s_igate + s_cell_new * (1.-s_igate)
     return s_cell_tp1
@@ -179,7 +186,7 @@ def batch_snr(clear_signal, noisy_signal):
         noise_pwr = tf.square(noise)
 
     coeff = 4.342944819
-    return coeff * (tf.log(signal_pwr) - tf.log(noise_pwr))
+    return coeff * (tf.log(signal_pwr + hparams.EPS) - tf.log(noise_pwr + hparams.EPS))
 
 def batch_cross_snr(clear_signal, noisy_signal):
     '''

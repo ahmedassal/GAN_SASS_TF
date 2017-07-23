@@ -5,7 +5,7 @@ hyperparameters
 # Hyperparameters are in CAPS
 # TODO use tf.app.flags to parse hyperparam from input
 #      or consider use json file to store hyperparams
-BATCH_SIZE = 2  # minibatch size
+BATCH_SIZE = 8  # minibatch size
 MAX_N_SIGNAL = 3
 FFT_SIZE = 256  # width of spectrogram
 CHARSET_SIZE = 27  # size of character set, excluding "blank" character
@@ -24,7 +24,7 @@ OPTIMIZER_TYPE = 'adam'  # "sgd" or "adam"
 LR = 1e-5  # learn rate
 LR_DECAY = None
 
-DATASET_TYPE = 'toy'  # "toy" or "timit"
+DATASET_TYPE = 'timit'  # "toy" or "timit"
 
 # "greedy" or "beam", beam is slower but gives better result
 CTC_DECODER_TYPE = 'greedy'

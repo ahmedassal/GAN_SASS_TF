@@ -6,7 +6,7 @@ TODO docs
 from __future__ import print_function
 from __future__ import absolute_import
 from __future__ import division
-
+from math import sqrt
 import argparse
 from sys import stdout
 from itertools import product
@@ -158,7 +158,7 @@ class Model(object):
 
     def lyr_lstm(
             self, name, s_x, hdim,
-            axis=-1, t_axis=0, op_linear=ops.lyr_linear, reuse=False):
+            axis=-1, t_axis=0, op_linear=ops.lyr_linear):
         '''
         Args:
             name: string
@@ -202,10 +202,13 @@ class Model(object):
             self.s_states_di[v_cell.name] = v_cell
             self.s_states_di[v_hid.name] = v_hid
 
+            init_range = 0.1 / sqrt(hdim)
             op_lstm = lambda _h, _x: ops.lyr_lstm_flat(
                 name='LSTM',
                 s_x=_x, v_cell=_h[0], v_hid=_h[1],
-                axis=axis-1, op_linear=op_linear)
+                axis=axis-1, op_linear=op_linear,
+                w_init=tf.random_uniform_initializer(
+                    -init_range, init_range, dtype=hparams.FLOATX))
             s_cell_seq, s_hid_seq = tf.scan(
                 op_lstm, s_x, initializer=(v_cell, v_hid))
         return s_hid_seq if t_axis == 0 else tf.transpose(s_hid_seq, perm)
@@ -375,9 +378,8 @@ class Model(object):
                     hparams.MAX_N_SIGNAL+1,
                     -1, hparams.FFT_SIZE]))
             # drop the one with lowest SNR (likely separated noise)
-            s_snr, _ = tf.nn.top_k(
-                s_cross_snr, k=hparams.MAX_N_SIGNAL, sorted=False)
-            s_snr = tf.reduce_mean(s_snr)
+            s_snr = tf.reduce_mean(tf.reduce_min(
+                s_cross_snr, axis=-1))
 
         # ===============
         # prepare summary
@@ -571,7 +573,7 @@ def main():
     global g_args, g_model, g_dataset
     parser = argparse.ArgumentParser()
     parser.add_argument('-m', '--mode',
-        default='train', help='Mode, "train", "test" or "interactive"')
+        default='train', help='Mode, "train", "test", "run" or "interactive"')
     parser.add_argument('-i', '--input-pfile',
         help='path to input model parameter file')
     parser.add_argument('-o', '--output-pfile',
