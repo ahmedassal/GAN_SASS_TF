@@ -531,6 +531,9 @@ class Model(object):
             stdout.flush()
 
     def test(self, dataset):
+        global g_args
+        train_writer = tf.summary.FileWriter(
+            hparams.ASR_SUMMARY_DIR, g_sess.graph)
         cli_report = {}
         for data_pt in dataset.epoch(
                 'test', hparams.BATCH_SIZE * hparams.MAX_N_SIGNAL):
@@ -541,8 +544,11 @@ class Model(object):
             stdout.write('.')
             stdout.flush()
             _dict_add(cli_report, step_fetch)
-        stdout.write('Epoch %d/%d %s' % (
-            i_epoch+1, n_epoch, _dict_format(cli_report)))
+        stdout.write('Test: %s\n' % (
+            _dict_format(cli_report)))
+
+    def asr_test(self, dataset):
+        raise NotImplementedError()
 
     def reset(self):
         '''re-initialize parameters, resets timestep'''
@@ -577,7 +583,7 @@ def main():
     g_args = parser.parse_args()
 
     # TODO manage device
-    stdout.write('Preparing dataset %s ... ' % hparams.DATASET_TYPE)
+    stdout.write('Preparing dataset "%s" ... ' % hparams.DATASET_TYPE)
     stdout.flush()
     g_dataset = hparams.get_dataset()()
     g_dataset.install_and_load()
@@ -613,8 +619,7 @@ def main():
             stdout.write('done\n')
             stdout.flush()
     elif g_args.mode == 'test':
-        # TODO test
-        raise NotImplementedError()
+        g_model.test(dataset=g_dataset)
     else:
         raise ValueError(
             'Unknow mode "%s", expected "train" or "test"' % g_args.mode)
