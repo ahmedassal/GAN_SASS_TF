@@ -38,6 +38,7 @@ class TimitDataset(Dataset):
         assert tot_size == len(phonemes_li)
         assert tot_size == len(texts_li)
         for i in range(0, tot_size-batch_size, batch_size):
+        # for i in range(0, batch_size*8, batch_size):
             sig_len = len(signals_li[i+batch_size-1])
             txt_len = max(map(len, texts_li[i:i+batch_size]))
             signals = np.stack(

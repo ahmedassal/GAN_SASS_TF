@@ -14,9 +14,11 @@ from functools import reduce
 import os
 import copy
 
-import nltk
 import numpy as np
+import scipy.signal
+import scipy.io.wavfile
 import tensorflow as tf
+# remove annoying "I tensorflow ..." logs
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 try:
@@ -28,11 +30,12 @@ except Exception as e:
     else:
         raise
 
+import app.datasets as datasets
 import app.hparams as hparams
+import app.modules as modules
 import app.ops as ops
 import app.ozers as ozers
-import app.datasets as datasets
-import app.modules as modules
+import app.utils as utils
 
 
 # Global vars
@@ -52,8 +55,65 @@ def _dict_add(dst, src):
             dst[k] += v
 
 
+def _dict_mul(di, coeff):
+    for k,v in di.items():
+        di[k] = v * coeff
+
+
 def _dict_format(di):
     return ' '.join('='.join((k, str(v))) for k,v in di.items())
+
+
+def load_wavfile(filename):
+    '''
+    This loads a WAV file, resamples to 16k/sec rate,
+    then preprocess it
+
+    Args:
+        filename: string
+
+    Returns:
+        numpy array of shape [time, FFT_SIZE]
+    '''
+    if filename is None:
+        # TODO in this case, draw a sample from dataset instead of raise ?
+        raise FileNotFoundError(
+                'WAV file not specified, '
+                'please specify via --input-file argument.')
+    smprate, data = scipy.io.wavfile.read(filename)
+    if data.ndim != 1:
+        print(
+            'Warning: WAV file is not of single channel'
+            ', using the first channel')
+        data = data[(0,)*(data.ndim-1)]
+    if smprate != 16000:
+        nsmp = data.shape[-1]
+        new_nsmp = int(max(nsmp * (16000 / smprate), 1))
+        data = scipy.signal.resample(data, new_nsmp, axis=0)
+        padsize = hparams.FFT_SIZE - ((data.shape[-1] - 1) % hparams.FFT_SIZE) - 1
+        data = np.pad(
+            data, [(0,0)]*(data.ndim-1) + [(0, padsize)], mode='constant')
+
+    spectrogram = scipy.signal.stft(data, nperseg=hparams.FFT_SIZE)[2]
+    feature = utils.spectrum_to_feature(spectrogram)
+    return feature
+
+
+def save_wavfile(filename, feature):
+    '''
+    Saves time series of features into a WAV file
+
+    Args:
+        filename: string
+        feature: 2D float array of shape [time, FFT_SIZE]
+    '''
+    spectrogram = utils.feature_to_spectrum(feature)
+    _, data = scipy.signal.istft(spectrogram, nperseg=hparams.FFT_SIZE)
+    data_min = np.min(data)
+    data_max = np.max(data)
+    data -= data_min
+    data *= (32767. / (data_max - data_min))
+    scipy.io.wavfile.write(filename, 16000, data.astype(np.int16))
 
 
 def prompt_yesno(q_):
@@ -96,54 +156,6 @@ def prompt_overwrite(filename_):
                 return new_filename
     else:
         savfile.close()
-
-
-def batch_levenshtein(x, y):
-    '''
-    Batched version of nltk.edit_distance, over character
-    This performs edit distance over last axis, trimming trailing zeros.
-
-    Args:
-        x: int array, hypothesis
-        y: int array, target
-
-    Returns: int32 array
-    '''
-    x_shp = x.shape
-    y_shp = y.shape
-    assert x_shp[:-1] == y_shp[:-1]
-    idx_iter = product(*map(range, x_shp[:-1]))
-
-    z = np.empty(x_shp[:-1], dtype='int32')
-    for idx in idx_iter:
-        u, v = x[idx], y[idx]
-        u = np.trim_zeros(u, 'b')
-        v = np.trim_zeros(v, 'b')
-        z[idx] = nltk.edit_distance(u, v)
-    return z
-
-
-def batch_wer(x, y, fn_decoder):
-    '''
-    Batched version of nltk.edit_distance, over words
-    This performs edit distance over last axis, trimming trailing zeros.
-
-    Args:
-        x: int array, hypothesis
-        y: int array, target
-        fn_decoder: function to convert int vector into string
-Returns: int32 array '''
-    x_shp = x.shape
-    y_shp = y.shape
-    assert x_shp[:-1] == y_shp[:-1]
-    idx_iter = product(*map(range, x_shp[:-1]))
-
-    z = np.empty(x_shp[-1], dtype='int32')
-    for idx in idx_iter:
-        x_str = fn_decoder(x[idx]).strip(' $').split(' ')
-        y_str = fn_decoder(y[idx]).strip(' $').split(' ')
-        z[idx] = nltk.edit_distance(x_str, y_str)
-    return z
 
 
 class Model(object):
@@ -411,11 +423,9 @@ class Model(object):
         self.op_init_states = tf.variables_initializer(
             list(self.s_states_di.values()))
 
+        self.train_feed_keys = [s_src_signals, sS_src_texts]
         train_summary = tf.summary.merge(
             [s_gan_loss_summary, s_ae_loss_summary, s_snr_summary])
-        test_summary = tf.summary.merge(
-            [s_gan_loss_summary_test, s_ae_loss_summary_test, s_snr_summary_test])
-        self.feed_keys = [s_src_signals, sS_src_texts]
         self.train_fetches = [
             train_summary,
             dict(
@@ -423,7 +433,11 @@ class Model(object):
                 ae_loss=s_autoencoder_loss,
                 SNR=s_snr),
             op_fit_generator, op_fit_discriminator]
-        # TODO need more metrics on test fetches
+        # TODO once ASR is done, add WER as metric
+
+        self.test_feed_keys = self.train_feed_keys
+        test_summary = tf.summary.merge(
+            [s_gan_loss_summary_test, s_ae_loss_summary_test, s_snr_summary_test])
         self.test_fetches = [
             test_summary,
             dict(
@@ -431,9 +445,13 @@ class Model(object):
                 ae_loss=s_autoencoder_loss,
                 SNR=s_snr)]
 
-        self.infer_fetches = [dict(
-            signals=s_separated_signals,
-            texts=sS_pred_texts)]
+        self.infer_feed_keys = [s_mixed_signals]
+        if hparams.USE_ASR:
+            self.infer_fetches = dict(
+                signals=s_separated_signals,
+                texts=sS_pred_texts)
+        else:
+            self.infer_fetches = dict(signals=s_separated_signals)
 
         self.saver = tf.train.Saver(var_list=v_params_li)
 
@@ -475,7 +493,7 @@ class Model(object):
             asr_train_summary.append(tf.summary.scalar('CTC_loss', s_asr_loss))
         asr_train_summary = tf.summary.merge(asr_train_summary)
 
-        self.asr_feed_keys = [s_src_signals_asr, sS_src_texts]
+        self.asr_train_feed_keys = [s_src_signals_asr, sS_src_texts]
         self.asr_train_fetches = [
             asr_train_summary,
             dict(WER=s_wer, CTC_loss=s_asr_loss),
@@ -487,9 +505,9 @@ class Model(object):
         train_writer = tf.summary.FileWriter(hparams.SUMMARY_DIR, g_sess.graph)
         for i_epoch in range(n_epoch):
             cli_report = {}
-            for data_pt in dataset.epoch(
-                    'train', hparams.BATCH_SIZE * hparams.MAX_N_SIGNAL):
-                to_feed = dict(zip(self.feed_keys, data_pt))
+            for i_batch, data_pt in enumerate(dataset.epoch(
+                    'train', hparams.BATCH_SIZE * hparams.MAX_N_SIGNAL)):
+                to_feed = dict(zip(self.train_feed_keys, data_pt))
                 step_summary, step_fetch = g_sess.run(
                     self.train_fetches, to_feed)[:2]
                 self.reset_state()
@@ -497,6 +515,7 @@ class Model(object):
                 stdout.write('.')
                 stdout.flush()
                 _dict_add(cli_report, step_fetch)
+            _dict_mul(cli_report, 1. / (i+1))
             if g_args.save_on_epoch:
                 self.save_params(self.name, i_epoch+1)
                 stdout.write('S')
@@ -515,7 +534,7 @@ class Model(object):
             cli_report = {}
             for data_pt in dataset.epoch(
                     'train', ASR_BATCH_SIZE):
-                to_feed = dict(zip(self.asr_feed_keys, data_pt))
+                to_feed = dict(zip(self.asr_train_feed_keys, data_pt))
                 step_summary, step_fetch = g_sess.run(
                     self.asr_train_fetches, to_feed)[:2]
                 self.reset_state()
@@ -539,7 +558,7 @@ class Model(object):
         cli_report = {}
         for data_pt in dataset.epoch(
                 'test', hparams.BATCH_SIZE * hparams.MAX_N_SIGNAL):
-            to_feed = dict(zip(self.feed_keys, data_pt))
+            to_feed = dict(zip(self.train_feed_keys, data_pt))
             step_summary, step_fetch = g_sess.run(
                 self.test_fetches, to_feed)[:2]
             train_writer.add_summary(step_summary)
@@ -573,7 +592,7 @@ def main():
     global g_args, g_model, g_dataset
     parser = argparse.ArgumentParser()
     parser.add_argument('-m', '--mode',
-        default='train', help='Mode, "train", "test", "run" or "interactive"')
+        default='train', help='Mode, "train", "test", "demo" or "interactive"')
     parser.add_argument('-i', '--input-pfile',
         help='path to input model parameter file')
     parser.add_argument('-o', '--output-pfile',
@@ -582,6 +601,8 @@ def main():
         type=int, default=10, help='number of training epoch')
     parser.add_argument('--save-on-epoch',
         action='store_true', help='saves parameter after each epoch')
+    parser.add_argument('-if', '--input-file',
+        help='input WAV file for "demo" mode')
     g_args = parser.parse_args()
 
     # TODO manage device
@@ -593,7 +614,7 @@ def main():
     stdout.flush()
 
     print('Separator type: "%s"' % hparams.SEPARATOR_TYPE)
-    print('Recognizer type: "%s"' % hparams.RECOGNIZER_TYPE)
+    print('Recognizer type: "%s"' % (hparams.RECOGNIZER_TYPE if hparams.USE_ASR else "<not used>"))
     print('Discriminator type: "%s"' % hparams.DISCRIMINATOR_TYPE)
 
     stdout.write('Building model ... ')
@@ -622,9 +643,38 @@ def main():
             stdout.flush()
     elif g_args.mode == 'test':
         g_model.test(dataset=g_dataset)
+    elif g_args.mode == 'demo':
+        # prepare data point
+        if g_args.input_file is None:
+            filename = 'demo.wav'
+            for features in g_dataset.epoch('test', hparams.MAX_N_SIGNAL):
+                break
+            features = np.sum(features[0], axis=0, keepdims=True)
+        else:
+            filename = g_args.input_file
+            features = load_wavfile(g_args.input_file)
+
+        # run with inference mode and save results
+        # TODO this has to use whole BATCH_SIZE, inefficient !
+        data_pt = [np.tile(features, [hparams.BATCH_SIZE] + [1]*2)]
+        result = g_sess.run(
+            g_model.infer_fetches,
+            dict(zip(g_model.infer_feed_keys, data_pt)))
+        signals = result['signals'][:(hparams.MAX_N_SIGNAL+1)]
+        filename, fileext = os.path.splitext(filename)
+        for i, s in enumerate(signals):
+            save_wavfile(
+                filename + ('_separated_%d' % (i+1)) + fileext, s)
+
+        if hparams.USE_ASR:
+            texts = result['texts'][0]
+            for i, t in enumerate(texts):
+                with open(filename + ('_text_%d' % (i+1)) + '.txt', 'w') as f:
+                    f.write(g_dataset.decode_to_str(t))
+                    f.write('\n')
     else:
         raise ValueError(
-            'Unknow mode "%s", expected "train" or "test"' % g_args.mode)
+            'Unknown mode "%s"' % g_args.mode)
 
 
 def debug_test():
