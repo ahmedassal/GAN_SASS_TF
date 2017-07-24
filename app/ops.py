@@ -223,3 +223,29 @@ def batch_cross_snr(clear_signal, noisy_signal):
     coeff = 4.342944819
     return coeff * (
         tf.log(signal_pwr + hparams.EPS) - tf.log(noise_pwr + hparams.EPS))
+
+
+def to_log_signal(s_signal):
+    '''
+    magnitude m -> log(1+m)
+    '''
+    half_fft_sz = hparams.FFT_SIZE // 2
+    ndim = len(s_signal.get_shape().as_list())
+    s_signal_abs2 = tf.add(
+        *tf.split(tf.square(s_signal), [half_fft_sz]*2, axis=ndim-1))
+    s_signal_scale = tf.tile(
+        0.5 * tf.log1p(s_signal_abs2) * tf.rsqrt(s_signal_abs2 + hparams.EPS), [1] * (ndim-1) + [2])
+    return s_signal_scale * s_signal
+
+
+def to_exp_signal(s_signal):
+    '''
+    magnitude m -> exp(m)-1
+    '''
+    half_fft_sz = hparams.FFT_SIZE // 2
+    ndim = len(s_signal.get_shape().as_list())
+    s_signal_abs = tf.sqrt(tf.add(
+        *tf.split(tf.square(s_signal), [half_fft_sz]*2, axis=ndim-1)) + hparams.EPS)
+    s_signal_scale = tf.tile(
+        tf.expm1(s_signal_abs) / s_signal_abs, [1] * (ndim-1) + [2])
+    return s_signal_scale * s_signal

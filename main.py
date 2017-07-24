@@ -9,7 +9,6 @@ from __future__ import division
 from math import sqrt
 import argparse
 from sys import stdout
-from itertools import product
 from functools import reduce
 import os
 import copy
@@ -267,15 +266,9 @@ class Model(object):
             hparams.INTX,
             name='source_text')
         with tf.variable_scope('G'):
-            # s_texts_dense = tf.sparse_to_dense(
-                # sS_src_texts.indices,
-                # sS_src_texts.dense_shape,
-                # sS_src_texts.values)
-            # s_texts_dense = tf.reshape(
-                # s_texts_dense, [hparams.BATCH_SIZE, hparams.MAX_N_SIGNAL, -1])
-            # s_texts_dense = tf.one_hot(
-                # s_texts_dense, hparams.CHARSET_SIZE, dtype=hparams.FLOATX)
             # TODO add mixing coeff ?
+
+            # get mixed signal
             s_mixed_signals = tf.reduce_sum(
                 tf.reshape(s_src_signals, [
                     hparams.BATCH_SIZE,
@@ -286,8 +279,11 @@ class Model(object):
                 stddev=0.1,
                 dtype=hparams.FLOATX)
             s_mixed_signals += s_noise_signal
-            s_separated_signals = separator(s_mixed_signals)
-            s_pred_texts = recognizer(s_separated_signals)
+            s_mixed_signals_log = ops.to_log_signal(s_mixed_signals)
+
+            s_separated_signals_log = separator(s_mixed_signals_log)
+            s_separated_signals = ops.to_exp_signal(s_separated_signals_log)
+            s_pred_texts = recognizer(s_separated_signals_log)
             if recognizer.IS_CTC:
                 bsize = hparams.BATCH_SIZE * (hparams.MAX_N_SIGNAL+1)
                 s_pred_texts = tf.transpose(
@@ -316,6 +312,7 @@ class Model(object):
             s_truth_signals = tf.reshape(s_truth_signals, [
                 hparams.BATCH_SIZE * (hparams.MAX_N_SIGNAL+1),
                 -1, hparams.FFT_SIZE])
+            s_truth_signals_log = ops.to_log_signal(s_truth_signals)
 
             # convert source text to dense one-hot
             s_src_texts = tf.sparse_to_dense(
@@ -351,15 +348,15 @@ class Model(object):
 
             with tf.variable_scope('dtor', reuse=False) as scope:
                 if hparams.USE_ASR:
-                    s_guess_t = discriminator(s_truth_signals, s_truth_texts)
+                    s_guess_t = discriminator(s_truth_signals_log, s_truth_texts)
                     scope.reuse_variables()
                     s_guess_f = discriminator(
-                        s_separated_signals,
+                        s_separated_signals_log,
                         s_guess_texts)
                 else:
-                    s_guess_t = discriminator(s_truth_signals)
+                    s_guess_t = discriminator(s_truth_signals_log)
                     scope.reuse_variables()
-                    s_guess_f = discriminator(s_separated_signals)
+                    s_guess_f = discriminator(s_separated_signals_log)
             s_truth = tf.concat([
                 tf.constant(
                     hparams.CLS_REAL_SIGNAL,
@@ -458,6 +455,7 @@ class Model(object):
         # ===================
         # build the ASR model
 
+        # FIXME signal -> log_signal
         ASR_BATCH_SIZE = hparams.BATCH_SIZE * (hparams.MAX_N_SIGNAL+1)
         input_shape = [ASR_BATCH_SIZE, None, hparams.FFT_SIZE]
         s_src_signals_asr = tf.placeholder(
@@ -651,6 +649,7 @@ def main():
             filename = 'demo.wav'
             for features in g_dataset.epoch('test', hparams.MAX_N_SIGNAL):
                 break
+            save_wavfile(filename, features[0][0] + features[0][1])
             features = np.sum(features[0], axis=0, keepdims=True)
         else:
             filename = g_args.input_file

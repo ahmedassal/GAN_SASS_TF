@@ -45,6 +45,36 @@ def read_timit_phoneme(f):
     return np.asarray(pho)
 
 
+def spectrum_to_feature(freqs):
+    '''
+    Convert STFT spectrum to feature vector
+
+    The goal is to keep real valued feature vector length
+        same as FFT_SIZE. This would be typically power
+        of 2, yielding improved performance on GPU.
+
+    Args:
+        freqs: [FFT_SIZE/2+1, LEN] complex valued matrix
+
+    Returns:
+        [LEN, FFT_SIZE] real valued matrix
+    '''
+    feature = freqs.copy()
+    feature[0].imag = feature[-1].real
+    feature = feature[:-1]
+    return np.concatenate(
+        [feature.real, feature.imag]).T.astype(FLOATX)
+
+
+def feature_to_spectrum(features):
+    '''reverse of spectrum_to_feature'''
+    fft_size = FFT_SIZE
+    features = features.T
+    features = features[:fft_size//2] + features[fft_size//2:]*1.j
+    features = np.pad(features, [(0, 1), (0, 0)], mode='constant')
+    features[-1].real = features[0].imag
+    features[0].imag = 0.
+    return features
 
 
 TRAIN_DIR = './train'

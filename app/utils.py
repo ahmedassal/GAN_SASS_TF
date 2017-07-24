@@ -13,26 +13,17 @@ def spectrum_to_feature(freqs):
         same as FFT_SIZE. This would be typically power
         of 2, yielding improved performance on GPU.
 
-    This does it by:
-
-    1. change magnitude M -> log(1+M)
-
-    2. since first and last value will always be real
-        we drop useless ones to make signal FFT_SIZE
-
     Args:
         freqs: [FFT_SIZE/2+1, LEN] complex valued matrix
 
     Returns:
         [LEN, FFT_SIZE] real valued matrix
     '''
-    mags = np.abs(freqs)
-    scale = np.log1p(mags) / (mags + hparams.EPS)
-    log_spec = scale * freqs
-    log_spec[0].imag = log_spec[-1].real
-    log_spec = log_spec[:-1]
+    feature = freqs.copy()
+    feature[0].imag = feature[-1].real
+    feature = feature[:-1]
     return np.concatenate(
-        [log_spec.real, log_spec.imag]).T.astype(hparams.FLOATX)
+        [feature.real, feature.imag]).T.astype(hparams.FLOATX)
 
 
 def feature_to_spectrum(features):
@@ -43,8 +34,6 @@ def feature_to_spectrum(features):
     features = np.pad(features, [(0, 1), (0, 0)], mode='constant')
     features[-1].real = features[0].imag
     features[0].imag = 0.
-    mags = np.abs(features)
-    features = (np.expm1(mags) / (mags + hparams.EPS)) * features
     return features
 
 
