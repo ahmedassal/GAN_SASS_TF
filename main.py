@@ -517,7 +517,7 @@ class Model(object):
                 stdout.write('.')
                 stdout.flush()
                 _dict_add(cli_report, step_fetch)
-            _dict_mul(cli_report, 1. / (i+1))
+            _dict_mul(cli_report, 1. / (i_batch+1))
             if g_args.save_on_epoch:
                 self.save_params(self.name, i_epoch+1)
                 stdout.write('S')
