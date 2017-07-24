@@ -9,12 +9,13 @@ class Dataset(object):
     def __init__(self):
         self.is_loaded = False
 
-    def epoch(self, subset, batch_size):
+    def epoch(self, subset, batch_size, shuffle=False):
         '''
         Iterator, yields batches of numpy array
         Args:
             subset: string
             batch_size: int
+            shuffle: bool
 
         Yields:
             (signals, text_indices, text_values, text_shape)
@@ -54,7 +55,7 @@ class WhiteNoiseData(object):
     def __init__(self):
         self.is_loaded = False
 
-    def epoch(self, subset, batch_size):
+    def epoch(self, subset, batch_size, shuffle=False):
         if not self.is_loaded:
             raise RuntimeError('Dataset is not loaded.')
         for _ in range(10):

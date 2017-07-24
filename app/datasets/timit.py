@@ -27,7 +27,7 @@ class TimitDataset(Dataset):
     def __init__(self):
         self.is_loaded = False
 
-    def epoch(self, subset, batch_size):
+    def epoch(self, subset, batch_size, shuffle=False):
         # TODO add a validation set ?
         if subset not in self.subset:
             raise KeyError(
@@ -37,46 +37,53 @@ class TimitDataset(Dataset):
         tot_size = len(signals_li)
         assert tot_size == len(phonemes_li)
         assert tot_size == len(texts_li)
+        if shuffle:
+            idx_li = np.arange(tot_size)
+        else:
+            idx_li = np.random.permutation(tot_size)
         for i in range(0, tot_size-batch_size, batch_size):
         # for i in range(0, batch_size*8, batch_size):
-            sig_len = len(signals_li[i+batch_size-1])
-            txt_len = max(map(len, texts_li[i:i+batch_size]))
-            signals = np.stack(
+            signals_batch_li = [signals_li[j] for j in idx_li[i:i+batch_size]]
+            texts_batch_li = [texts_li[j] for j in idx_li[i:i+batch_size]]
+            sig_len = max(map(len, signals_batch_li))
+            txt_len = max(map(len, texts_batch_li))
+            signals_batch = np.stack(
                 [np.pad(s, ((0, sig_len-len(s)), (0, 0)), mode='constant')
-                    for s in signals_li[i:i+batch_size]])
-            texts = texts_li[i:i+batch_size]
+                    for s in signals_batch_li])
             text_indices = np.empty(
-                (reduce(int.__add__, map(len, texts)), 2), dtype=hparams.INTX)
-            text_values = np.concatenate(texts)
+                (reduce(int.__add__, map(len, texts_batch_li)), 2), dtype=hparams.INTX)
+            text_values = np.concatenate(texts_batch_li)
 
             idx = 0
-            for j, t in enumerate(texts):
+            for j, t in enumerate(texts_batch_li):
                 l = len(t)
                 text_indices[idx:idx+l, 0] = j
                 text_indices[idx:idx+l, 1] = np.arange(l)
                 idx += l
 
             text_shape = (batch_size, txt_len)
-            yield signals, (text_indices, text_values, text_shape)
+            yield signals_batch, (text_indices, text_values, text_shape)
+
         if tot_size % batch_size:
+            signals_batch_li = [signals_li[j] for j in idx_li[-batch_size:]]
+            texts_batch_li = [texts_li[j] for j in idx_li[-batch_size:]]
             sig_len = len(signals_li[-1])
             txt_len = max(map(len, texts_li[-batch_size:]))
-            signals = np.stack(
+            signals_batch = np.stack(
                 [np.pad(s, ((0, sig_len-len(s)), (0, 0)), mode='constant')
-                    for s in signals_li[-batch_size:]])
-            texts = texts_li[-batch_size:]
+                    for s in signals_batch_li])
             text_indices = np.empty(
-                (reduce(int.__add__, map(len, texts)), 2), dtype=hparams.INTX)
-            text_values = np.concatenate(texts)
+                (reduce(int.__add__, map(len, texts_batch_li)), 2), dtype=hparams.INTX)
+            text_values = np.concatenate(texts_batch_li)
 
             idx = 0
-            for i, t in enumerate(texts):
+            for i, t in enumerate(texts_batch_li):
                 l = len(t)
                 text_indices[idx:idx+l, 0] = i
                 text_indices[idx:idx+l, 1] = np.arange(l)
                 idx += l
 
-            yield signals, (text_indices, text_values, (batch_size, txt_len))
+            yield signals_batch, (text_indices, text_values, (batch_size, txt_len))
 
     def install_and_load(self):
         # TODO automatically install if fails to find anything

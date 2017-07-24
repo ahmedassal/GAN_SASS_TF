@@ -506,7 +506,9 @@ class Model(object):
         for i_epoch in range(n_epoch):
             cli_report = {}
             for i_batch, data_pt in enumerate(dataset.epoch(
-                    'train', hparams.BATCH_SIZE * hparams.MAX_N_SIGNAL)):
+                    'train',
+                    hparams.BATCH_SIZE * hparams.MAX_N_SIGNAL,
+                    shuffle=True)):
                 to_feed = dict(zip(self.train_feed_keys, data_pt))
                 step_summary, step_fetch = g_sess.run(
                     self.train_fetches, to_feed)[:2]
