@@ -12,6 +12,8 @@ To continue training, run `python main.py -i saves/my_model.cpkt`
 
 To check model accuracy on test set, do `python main.py -i <YOUR_MODEL_PARAMETERS> -m=test`
 
+To quickly use the model to separate a WAV file, do `python main.py -i <YOUR_MODEL_PARAMETERS> -m=demo -if=your_audio.wav`
+
 For more parameters help, do `python main.py --help`
 
 The model currently has performance issues, and probably doesn't perform the task well ... yet.
