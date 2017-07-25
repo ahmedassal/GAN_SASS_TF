@@ -9,17 +9,24 @@ BATCH_SIZE = 8  # minibatch size
 MAX_N_SIGNAL = 3
 FFT_SIZE = 256  # width of spectrogram
 CHARSET_SIZE = 27  # size of character set, excluding "blank" character
-EPS = 1e-7  # to prevent sqrt() log() etc cause NaN
-RELU_LEAKAGE = 0.3  # how leaky relu is, 0 -> relu, 1 -> linear
+
 USE_ASR = False  # whether to integrate speech recognizer into GAN training
+
 FLOATX = 'float32'  # default type for float
 INTX = 'int32'  # defualt type for int
-DROPOUT_PROB = 0.3  # probability of dropout
 
+RELU_LEAKAGE = 0.3  # how leaky relu is, 0 -> relu, 1 -> linear
+EPS = 1e-7  # to prevent sqrt() log() etc cause NaN
+DROPOUT_KEEP_PROB = 0.8  # probability to keep in dropout layer
+assert isinstance(DROPOUT_KEEP_PROB, float)
+assert 0. < DROPOUT_KEEP_PROB <= 1.
+REG_SCALE = 1e-2  # regularization loss scale
+REG_TYPE = 'L2'  # regularization type
+
+# check "modules.py" to see available sub-modules
 SEPARATOR_TYPE = 'bilstm-v1'
 RECOGNIZER_TYPE = 'bilstm-ctc-v1'
 DISCRIMINATOR_TYPE = 'bilstm-3way-v1'
-
 OPTIMIZER_TYPE = 'adam'  # "sgd" or "adam"
 LR = 1e-5  # learn rate
 LR_DECAY = None
@@ -32,13 +39,15 @@ CTC_DECODER_TYPE = 'greedy'
 SUMMARY_DIR = './logs'
 ASR_SUMMARY_DIR = './asr_logs'
 
+
+# ==========================================================================
+# normally you don't need touch anything below if you just want to tweak
+# some hyperparameters
 CLS_REAL_SIGNAL = 0
 CLS_REAL_NOISE = 1
 CLS_FAKE_SIGNAL = 2
 
-
-# normally you don't need touch anything below if you just want to tweak
-# some hyperparameters
+import tensorflow as tf
 
 # registry
 separator_registry = {}
@@ -101,3 +110,10 @@ def register_dataset(name):
 
 def get_dataset():
     return dataset_registry[DATASET_TYPE]
+
+
+def get_regularizer():
+    reger = dict(
+        L1=tf.contrib.layers.l1_regularizer,
+        L2=tf.contrib.layers.l2_regularizer)[REG_TYPE](REG_SCALE)
+    return reger

@@ -60,7 +60,7 @@ class WhiteNoiseData(object):
             raise RuntimeError('Dataset is not loaded.')
         for _ in range(10):
             signal = np.random.rand(
-                batch_size, 128, hparams.FFT_SIZE)
+                batch_size, 128, hparams.FFT_SIZE).astype(hparams.FLOATX)
             text_indices = np.asarray(
                 list(product(range(batch_size), range(64))),
                 dtype=hparams.INTX)

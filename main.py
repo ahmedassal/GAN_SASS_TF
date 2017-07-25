@@ -9,6 +9,7 @@ from __future__ import division
 from math import sqrt
 import argparse
 from sys import stdout
+from collections import OrderedDict
 from functools import reduce
 import os
 import copy
@@ -241,6 +242,7 @@ class Model(object):
         return True
 
     def build(self):
+        # TODO refactor this super long function
         # create sub-modules
         separator = hparams.get_separator()(
             self, 'separator')
@@ -265,7 +267,11 @@ class Model(object):
         sS_src_texts = tf.sparse_placeholder(
             hparams.INTX,
             name='source_text')
-        with tf.variable_scope('G'):
+        s_dropout_keep = tf.placeholder(
+            hparams.FLOATX,
+            [], name='dropout_keep')
+        reger = hparams.get_regularizer()
+        with tf.variable_scope('G', regularizer=reger):
             # TODO add mixing coeff ?
 
             # get mixed signal
@@ -281,9 +287,11 @@ class Model(object):
             s_mixed_signals += s_noise_signal
             s_mixed_signals_log = ops.to_log_signal(s_mixed_signals)
 
-            s_separated_signals_log = separator(s_mixed_signals_log)
+            s_separated_signals_log = separator(
+                s_mixed_signals_log, s_dropout_keep=s_dropout_keep)
             s_separated_signals = ops.to_exp_signal(s_separated_signals_log)
-            s_pred_texts = recognizer(s_separated_signals_log)
+            s_pred_texts = recognizer(
+                s_separated_signals_log, s_dropout_keep=s_dropout_keep)
             if recognizer.IS_CTC:
                 bsize = hparams.BATCH_SIZE * (hparams.MAX_N_SIGNAL+1)
                 s_pred_texts = tf.transpose(
@@ -302,7 +310,7 @@ class Model(object):
                         ) - s_mixed_signals),
                 axis=None)
 
-        with tf.variable_scope('D'):
+        with tf.variable_scope('D', regularizer=reger):
             s_truth_signals = tf.concat([
                 tf.reshape(s_src_signals, [
                     hparams.BATCH_SIZE,
@@ -348,15 +356,23 @@ class Model(object):
 
             with tf.variable_scope('dtor', reuse=False) as scope:
                 if hparams.USE_ASR:
-                    s_guess_t = discriminator(s_truth_signals_log, s_truth_texts)
+                    s_guess_t = discriminator(
+                        s_truth_signals_log,
+                        s_truth_texts,
+                        s_dropout_keep=s_dropout_keep)
                     scope.reuse_variables()
                     s_guess_f = discriminator(
                         s_separated_signals_log,
-                        s_guess_texts)
+                        s_guess_texts,
+                        s_dropout_keep=s_dropout_keep)
                 else:
-                    s_guess_t = discriminator(s_truth_signals_log)
+                    s_guess_t = discriminator(
+                        s_truth_signals_log,
+                        s_dropout_keep=s_dropout_keep)
                     scope.reuse_variables()
-                    s_guess_f = discriminator(s_separated_signals_log)
+                    s_guess_f = discriminator(
+                        s_separated_signals_log,
+                        s_dropout_keep=s_dropout_keep)
             s_truth = tf.concat([
                 tf.constant(
                     hparams.CLS_REAL_SIGNAL,
@@ -420,7 +436,8 @@ class Model(object):
         self.op_init_states = tf.variables_initializer(
             list(self.s_states_di.values()))
 
-        self.train_feed_keys = [s_src_signals, sS_src_texts]
+        self.train_feed_keys = [
+            s_src_signals, sS_src_texts, s_dropout_keep]
         train_summary = tf.summary.merge(
             [s_gan_loss_summary, s_ae_loss_summary, s_snr_summary])
         self.train_fetches = [
@@ -502,12 +519,12 @@ class Model(object):
         global g_args
         train_writer = tf.summary.FileWriter(hparams.SUMMARY_DIR, g_sess.graph)
         for i_epoch in range(n_epoch):
-            cli_report = {}
+            cli_report = OrderedDict()
             for i_batch, data_pt in enumerate(dataset.epoch(
                     'train',
                     hparams.BATCH_SIZE * hparams.MAX_N_SIGNAL,
                     shuffle=True)):
-                to_feed = dict(zip(self.train_feed_keys, data_pt))
+                to_feed = dict(zip(self.train_feed_keys, data_pt + (hparams.DROPOUT_KEEP_PROB,)))
                 step_summary, step_fetch = g_sess.run(
                     self.train_fetches, to_feed)[:2]
                 self.reset_state()
@@ -537,12 +554,13 @@ class Model(object):
             stdout.flush()
             if g_args.no_test_on_epoch:
                 continue
-            cli_report = {}
+            cli_report = OrderedDict()
             for i_batch, data_pt in enumerate(dataset.epoch(
                     'test',
                     hparams.BATCH_SIZE * hparams.MAX_N_SIGNAL,
                     shuffle=False)):
-                to_feed = dict(zip(self.train_feed_keys, data_pt))
+                # note: disable dropout during test
+                to_feed = dict(zip(self.train_feed_keys, data_pt + (1.,)))
                 step_summary, step_fetch = g_sess.run(
                     self.test_fetches, to_feed)[:2]
                 self.reset_state()
@@ -564,7 +582,7 @@ class Model(object):
             cli_report = {}
             for data_pt in dataset.epoch(
                     'train', ASR_BATCH_SIZE):
-                to_feed = dict(zip(self.asr_train_feed_keys, data_pt))
+                to_feed = dict(zip(self.asr_train_feed_keys, data_pt + (hparams.DROPOUT_KEEP_PROB,)))
                 step_summary, step_fetch = g_sess.run(
                     self.asr_train_fetches, to_feed)[:2]
                 self.reset_state()
@@ -588,7 +606,7 @@ class Model(object):
         cli_report = {}
         for data_pt in dataset.epoch(
                 'test', hparams.BATCH_SIZE * hparams.MAX_N_SIGNAL):
-            to_feed = dict(zip(self.train_feed_keys, data_pt))
+            to_feed = dict(zip(self.train_feed_keys, data_pt + (1.,)))
             step_summary, step_fetch = g_sess.run(
                 self.test_fetches, to_feed)[:2]
             train_writer.add_summary(step_summary)
@@ -633,7 +651,7 @@ def main():
     parser.add_argument('-ne', '--num-epoch',
         type=int, default=10, help='number of training epoch')
     parser.add_argument('--no-save-on-epoch',
-        action='store_false', help="don't save parameter after each epoch")
+        action='store_true', help="don't save parameter after each epoch")
     parser.add_argument('--no-test-on-epoch',
         action='store_true', help="don't sweep test set after training epoch")
     parser.add_argument('-if', '--input-file',
@@ -692,10 +710,10 @@ def main():
 
         # run with inference mode and save results
         # TODO this has to use whole BATCH_SIZE, inefficient !
-        data_pt = [np.tile(features, [hparams.BATCH_SIZE] + [1]*2)]
+        data_pt = (np.tile(features, [hparams.BATCH_SIZE] + [1]*2),)
         result = g_sess.run(
             g_model.infer_fetches,
-            dict(zip(g_model.infer_feed_keys, data_pt)))
+            dict(zip(g_model.infer_feed_keys, data_pt + (hparams.DROPOUT_KEEP_PROB,))))
         signals = result['signals'][:(hparams.MAX_N_SIGNAL+1)]
         filename, fileext = os.path.splitext(filename)
         for i, s in enumerate(signals):

@@ -1,4 +1,5 @@
 import copy
+from functools import partial
 
 import tensorflow as tf
 
@@ -16,7 +17,7 @@ class ModelModule(object):
     def __init__(self, model, name):
         pass
 
-    def __call__(self):
+    def __call__(self, s_dropout_keep=1.):
         raise NotImplementedError()
 
 
@@ -27,11 +28,14 @@ class Separator(ModelModule):
     def __init__(self, model, name):
         self.name = name
 
-    def __call__(self, s_mixture):
+    def __call__(self, s_mixture, s_dropout_keep=1.):
         '''
         Args:
             s_mixture: tensor variable
                 3d tensor of shape [batch_size, length, fft_size]
+
+            s_dropout_keep: scalar const or variable
+                keep probability for dropout layer
 
         Returns:
             [batch_size * (n_signal+1), length, fft_size]
@@ -56,11 +60,14 @@ class Recognizer(ModelModule):
     def __init__(self, model, name):
         pass
 
-    def __call__(self, s_signals):
+    def __call__(self, s_signals, s_dropout_keep=1.):
         '''
         Args:
             s_signals: tensor variable
                 [batch_size, length, fft_size]
+
+            s_dropout_keep: scalar const or variable
+                keep probability for dropout layer
 
         Returns:
             if IS_CTC==True: logits, tensor variable of shape:
@@ -82,7 +89,7 @@ class Discriminator(ModelModule):
     def __init__(self, model, name):
         self.name = name
 
-    def __call__(self, s_signals, s_texts):
+    def __call__(self, s_signals, s_texts, s_dropout_keep=1.):
         '''
         Args:
             s_signals: tensor variable
@@ -91,6 +98,9 @@ class Discriminator(ModelModule):
             s_texts: tensor variable
                 shape: [batch_size, text_length, charset_size]
                 this is a categorical distribution sequence
+
+            s_dropout_keep: scalar const or variable
+                keep probability for dropout layer
 
         Returns:
             tensor variable of shape [batch_size, 3]
@@ -106,7 +116,7 @@ class ToySeparator(Separator):
     def __init__(self, model, name):
         self.name = name
 
-    def __call__(self, s_signals):
+    def __call__(self, s_signals, s_dropout_keep=1.):
         with tf.variable_scope(self.name):
             s_mid = ops.lyr_linear(
                 'linear0', s_signals, hparams.FFT_SIZE*2, axis=-1)
@@ -136,7 +146,7 @@ class ToyRecognizer(Recognizer):
     def __init__(self, model, name):
         self.name = name
 
-    def __call__(self, s_signals):
+    def __call__(self, s_signals, s_dropout_keep=1.):
         inp_shape = s_signals.get_shape().as_list()
         fft_size = inp_shape[-1]
         charset_size = hparams.CHARSET_SIZE
@@ -163,7 +173,7 @@ class ToyDiscriminator(Discriminator):
     def __init__(self, model, name):
         self.name = name
 
-    def __call__(self, s_signals, s_texts=None):
+    def __call__(self, s_signals, s_texts=None, s_dropout_keep=1.):
         with tf.variable_scope(self.name):
             s_signals_mean = tf.reduce_mean(s_signals, axis=-2)
             if s_texts is not None:
@@ -192,9 +202,10 @@ class BiLstmW3V0Discriminator(Discriminator):
         self.name = name
         self.model = model
 
-    def __call__(self, s_signals, s_texts=None):
+    def __call__(self, s_signals, s_texts=None, s_dropout_keep=1.):
         rev_signal = (slice(None), slice(None, None, -1))
         rev_text = (slice(None), slice(None, None, -1))
+        fn_dropout = partial(tf.nn.dropout, keep_prob=s_dropout_keep)
         with tf.variable_scope(self.name):
             s_signals_mid_fwd = self.model.lyr_lstm(
                 'LSTM0_fwd', s_signals, 64, t_axis=-2)
@@ -202,6 +213,7 @@ class BiLstmW3V0Discriminator(Discriminator):
                 'LSTM0_bwd', s_signals[rev_signal], 64, t_axis=-2)
             s_signals_mid = tf.concat(
                 [s_signals_mid_fwd, s_signals_mid_bwd[rev_signal]], axis=-1)
+            s_signals_mid = fn_dropout(s_signals_mid)
 
             s_signals_out_fwd = self.model.lyr_lstm(
                 'LSTM1_fwd', s_signals_mid, 32, t_axis=-2)
@@ -210,6 +222,7 @@ class BiLstmW3V0Discriminator(Discriminator):
             s_signals_out = tf.concat(
                 [s_signals_out_fwd[:, -1], s_signals_out_bwd[:, -1]],
                 axis=-1)
+            s_signals_out = fn_dropout(s_signals_out)
 
             if s_texts is None:
                 s_out = s_signals_out
@@ -220,6 +233,7 @@ class BiLstmW3V0Discriminator(Discriminator):
                     'LSTM0_txt_bwd', s_texts[rev_text], 32, t_axis=-2)
                 s_texts_mid = tf.concat(
                     [s_texts_mid_fwd, s_texts_mid_bwd[rev_text]], axis=-1)
+                s_texts_mid = fn_dropout(s_texts_mid)
 
                 s_texts_out_fwd = self.model.lyr_lstm(
                     'LSTM1_txt_fwd', s_texts_mid, 16, t_axis=-2)
@@ -229,6 +243,7 @@ class BiLstmW3V0Discriminator(Discriminator):
                     s_texts_out_fwd[:, -1],
                     s_texts_out_bwd[:, -1],
                     s_signals_out], axis=-1)
+                s_out = fn_dropout(s_out)
 
             s_logits = ops.lyr_linear('linear_logits', s_out, 3, axis=-1)
         return s_logits
@@ -241,9 +256,10 @@ class BiLstmCtcRecognizer(Recognizer):
         self.name = name
         self.model = model
 
-    def __call__(self, s_signals):
+    def __call__(self, s_signals, s_dropout_keep=1.):
         rev_signal = (slice(None), slice(None), slice(None, None, -1))
         charset_size = hparams.CHARSET_SIZE
+        fn_dropout = partial(tf.nn.dropout, keep_prob=s_dropout_keep)
         with tf.variable_scope(self.name):
             s_mid0_fwd = self.model.lyr_lstm(
                 'LSTM0_fwd', s_signals, 128, t_axis=-2)
@@ -251,6 +267,7 @@ class BiLstmCtcRecognizer(Recognizer):
                 'LSTM0_bwd', s_signals[rev_signal], 128, t_axis=-2)
             s_mid0 = tf.concat(
                 [s_mid0_fwd, s_mid0_bwd[rev_signal]], axis=-1)
+            s_mid0 = fn_dropout(s_mid0)
 
             s_mid1_fwd = self.model.lyr_lstm(
                 'LSTM1_fwd', s_mid0, 64, t_axis=-2)
@@ -258,6 +275,7 @@ class BiLstmCtcRecognizer(Recognizer):
                 'LSTM1_bwd', s_mid0[rev_signal], 64, t_axis=-2)
             s_mid1 = tf.concat(
                 [s_mid1_fwd, s_mid1_bwd[rev_signal]], axis=-1)
+            s_mid1 = fn_dropout(s_mid1)
 
             s_mid2_fwd = self.model.lyr_lstm(
                 'LSTM2_fwd', s_mid1, 64, t_axis=-2)
@@ -265,6 +283,7 @@ class BiLstmCtcRecognizer(Recognizer):
                 'LSTM2_bwd', s_mid1[rev_signal], 64, t_axis=-2)
             s_mid2 = tf.concat(
                 [s_mid2_fwd, s_mid2_bwd[rev_signal]], axis=-1)
+            s_mid2 = fn_dropout(s_mid2)
 
             s_mid3_fwd = self.model.lyr_lstm(
                 'LSTM3_fwd', s_mid2, 32, t_axis=-2)
@@ -272,8 +291,10 @@ class BiLstmCtcRecognizer(Recognizer):
                 'LSTM3_bwd', s_mid2[rev_signal], 32, t_axis=-2)
             s_mid3 = tf.concat(
                 [s_mid3_fwd, s_mid3_bwd[rev_signal]], axis=-1)
+            s_mid3 = fn_dropout(s_mid3)
 
-            s_logits = ops.lyr_linear('linear', s_mid3, charset_size+1, axis=-1)
+            s_logits = ops.lyr_linear(
+                'linear', s_mid3, charset_size+1, axis=-1)
         return s_logits
 
 
@@ -283,10 +304,11 @@ class BiLstmSeparator(Separator):
         self.name = name
         self.model = model
 
-    def __call__(self, s_signals):
+    def __call__(self, s_signals, s_dropout_keep=1.):
         n_outs = hparams.MAX_N_SIGNAL + 1
         fft_size = hparams.FFT_SIZE
         rev_signal = (slice(None), slice(None, None, -1))
+        fn_dropout = partial(tf.nn.dropout, keep_prob=s_dropout_keep)
         with tf.variable_scope(self.name):
             s_mid0_fwd = self.model.lyr_lstm(
                 'lstm0_fwd', s_signals, 128, t_axis=-2)
@@ -294,6 +316,7 @@ class BiLstmSeparator(Separator):
                 'lstm0_bwd', s_signals[rev_signal], 128, t_axis=-2)
             s_mid0 = tf.concat(
                 [s_mid0_fwd, s_mid0_bwd[rev_signal]], axis=-1)
+            s_mid0 = fn_dropout(s_mid0)
 
             s_mid1_fwd = self.model.lyr_lstm(
                 'lstm1_fwd', s_mid0, 256, t_axis=-2)
@@ -301,6 +324,7 @@ class BiLstmSeparator(Separator):
                 'lstm1_bwd', s_mid0[rev_signal], 256, t_axis=-2)
             s_mid1 = tf.concat(
                 [s_mid1_fwd, s_mid1_bwd[rev_signal]], axis=-1)
+            s_mid1 = fn_dropout(s_mid1)
 
             s_out_fwd = self.model.lyr_lstm(
                 'lstm2_fwd', s_mid1, 256, t_axis=-2)
@@ -308,6 +332,7 @@ class BiLstmSeparator(Separator):
                 'lstm2_bwd', s_mid1[rev_signal], 256, t_axis=-2)
             s_out = tf.concat(
                 [s_out_fwd, s_out_bwd[rev_signal]], axis=-1)
+            s_out = fn_dropout(s_out)
             s_out = ops.lyr_linear(
                 'output', s_out, fft_size * n_outs, bias=False)
             s_out = tf.reshape(
