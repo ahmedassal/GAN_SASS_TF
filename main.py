@@ -6,7 +6,7 @@ TODO docs
 from __future__ import print_function
 from __future__ import absolute_import
 from __future__ import division
-from math import sqrt
+from math import sqrt, isnan
 import argparse
 from sys import stdout
 from collections import OrderedDict
@@ -584,7 +584,7 @@ class Model(object):
                 _dict_add(cli_report, step_fetch)
             _dict_mul(cli_report, 1. / (i_batch+1))
             if not g_args.no_save_on_epoch:
-                if float('nan') in cli_report.values():
+                if any(map(isnan, cli_report.values())):
                     if i_epoch:
                         stdout.write('\nEpoch %d/%d got NAN values, restoring last checkpoint ... ')
                         stdout.flush()
