@@ -249,6 +249,64 @@ class BiLstmW3V0Discriminator(Discriminator):
         return s_logits
 
 
+@hparams.register_discriminator('bigru-3way-v1')
+class BiGruW3V0Discriminator(Discriminator):
+    '''
+    This discriminator applys two layer Bi-GRU to both
+    signal and text, then send the activation of last time frame
+    to a linear projection layer to obtain logits
+    '''
+    def __init__(self, model, name):
+        self.name = name
+        self.model = model
+
+    def __call__(self, s_signals, s_texts=None, s_dropout_keep=1.):
+        rev_signal = (slice(None), slice(None, None, -1))
+        rev_text = (slice(None), slice(None, None, -1))
+        fn_dropout = partial(tf.nn.dropout, keep_prob=s_dropout_keep)
+        with tf.variable_scope(self.name):
+            s_signals_mid_fwd = self.model.lyr_gru(
+                'GRU0_fwd', s_signals, 64, t_axis=-2)
+            s_signals_mid_bwd = self.model.lyr_gru(
+                'GRU0_bwd', s_signals[rev_signal], 64, t_axis=-2)
+            s_signals_mid = tf.concat(
+                [s_signals_mid_fwd, s_signals_mid_bwd[rev_signal]], axis=-1)
+            s_signals_mid = fn_dropout(s_signals_mid)
+
+            s_signals_out_fwd = self.model.lyr_gru(
+                'GRU1_fwd', s_signals_mid, 32, t_axis=-2)
+            s_signals_out_bwd = self.model.lyr_gru(
+                'GRU1_bwd', s_signals_mid[rev_signal], 32, t_axis=-2)
+            s_signals_out = tf.concat(
+                [s_signals_out_fwd[:, -1], s_signals_out_bwd[:, -1]],
+                axis=-1)
+            s_signals_out = fn_dropout(s_signals_out)
+
+            if s_texts is None:
+                s_out = s_signals_out
+            else:
+                s_texts_mid_fwd = self.model.lyr_gru(
+                    'GRU0_txt_fwd', s_texts, 32, t_axis=-2)
+                s_texts_mid_bwd = self.model.lyr_gru(
+                    'GRU0_txt_bwd', s_texts[rev_text], 32, t_axis=-2)
+                s_texts_mid = tf.concat(
+                    [s_texts_mid_fwd, s_texts_mid_bwd[rev_text]], axis=-1)
+                s_texts_mid = fn_dropout(s_texts_mid)
+
+                s_texts_out_fwd = self.model.lyr_gru(
+                    'GRU1_txt_fwd', s_texts_mid, 16, t_axis=-2)
+                s_texts_out_bwd = self.model.lyr_gru(
+                    'GRU1_txt_bwd', s_texts_mid[rev_text], 16, t_axis=-2)
+                s_out = tf.concat([
+                    s_texts_out_fwd[:, -1],
+                    s_texts_out_bwd[:, -1],
+                    s_signals_out], axis=-1)
+                s_out = fn_dropout(s_out)
+
+            s_logits = ops.lyr_linear('linear_logits', s_out, 3, axis=-1)
+        return s_logits
+
+
 @hparams.register_recognizer('bilstm-ctc-v1')
 class BiLstmCtcRecognizer(Recognizer):
     IS_CTC = True
@@ -330,6 +388,50 @@ class BiLstmSeparator(Separator):
                 'lstm2_fwd', s_mid1, 256, t_axis=-2)
             s_out_bwd = self.model.lyr_lstm(
                 'lstm2_bwd', s_mid1[rev_signal], 256, t_axis=-2)
+            s_out = tf.concat(
+                [s_out_fwd, s_out_bwd[rev_signal]], axis=-1)
+            s_out = fn_dropout(s_out)
+            s_out = ops.lyr_linear(
+                'output', s_out, fft_size * n_outs, bias=False)
+            s_out = tf.reshape(
+                s_out, [hparams.BATCH_SIZE, -1, n_outs, fft_size])
+            s_out = tf.transpose(s_out, [0, 2, 1, 3])
+            s_out = tf.reshape(s_out, [hparams.BATCH_SIZE*n_outs, -1, fft_size])
+        return s_out
+
+
+@hparams.register_separator('bigru-v1')
+class BiGruSeparator(Separator):
+    def __init__(self, model, name):
+        self.name = name
+        self.model = model
+
+    def __call__(self, s_signals, s_dropout_keep=1.):
+        n_outs = hparams.MAX_N_SIGNAL + 1
+        fft_size = hparams.FFT_SIZE
+        rev_signal = (slice(None), slice(None, None, -1))
+        fn_dropout = partial(tf.nn.dropout, keep_prob=s_dropout_keep)
+        with tf.variable_scope(self.name):
+            s_mid0_fwd = self.model.lyr_gru(
+                'gru0_fwd', s_signals, 128, t_axis=-2)
+            s_mid0_bwd = self.model.lyr_gru(
+                'gru0_bwd', s_signals[rev_signal], 128, t_axis=-2)
+            s_mid0 = tf.concat(
+                [s_mid0_fwd, s_mid0_bwd[rev_signal]], axis=-1)
+            s_mid0 = fn_dropout(s_mid0)
+
+            s_mid1_fwd = self.model.lyr_gru(
+                'gru1_fwd', s_mid0, 256, t_axis=-2)
+            s_mid1_bwd = self.model.lyr_gru(
+                'gru1_bwd', s_mid0[rev_signal], 256, t_axis=-2)
+            s_mid1 = tf.concat(
+                [s_mid1_fwd, s_mid1_bwd[rev_signal]], axis=-1)
+            s_mid1 = fn_dropout(s_mid1)
+
+            s_out_fwd = self.model.lyr_gru(
+                'gru2_fwd', s_mid1, 256, t_axis=-2)
+            s_out_bwd = self.model.lyr_gru(
+                'gru2_bwd', s_mid1[rev_signal], 256, t_axis=-2)
             s_out = tf.concat(
                 [s_out_fwd, s_out_bwd[rev_signal]], axis=-1)
             s_out = fn_dropout(s_out)

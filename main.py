@@ -225,6 +225,56 @@ class Model(object):
                 op_lstm, s_x, initializer=(v_cell, v_hid))
         return s_hid_seq if t_axis == 0 else tf.transpose(s_hid_seq, perm)
 
+    def lyr_gru(
+            self, name, s_x, hdim,
+            axis=-1, t_axis=0, op_linear=ops.lyr_linear):
+        '''
+        Args:
+            name: string
+            s_x: input tensor
+            hdim: size of hidden layer
+            axis: which axis will RNN op get performed on
+            t_axis: which axis would be the timeframe
+            op_rnn: RNN layer function, defaults to ops.lyr_gru
+        '''
+        x_shp = s_x.get_shape().as_list()
+        ndim = len(x_shp)
+        assert -ndim <= axis < ndim
+        assert -ndim <= t_axis < ndim
+        axis = axis % ndim
+        t_axis = t_axis % ndim
+        assert axis != t_axis
+        # make sure t_axis is 0, to make scan work
+        if t_axis != 0:
+            if axis == 0:
+                axis = t_axis % ndim
+            perm = list(range(ndim))
+            perm[0], perm[t_axis] = perm[t_axis], perm[0]
+            s_x = tf.transpose(s_x, perm)
+        x_shp[t_axis], x_shp[0] = x_shp[0], x_shp[t_axis]
+        idim = x_shp[axis]
+        assert isinstance(idim, int)
+        h_shp = copy.copy(x_shp[1:])
+        h_shp[axis-1] = hdim
+        with tf.variable_scope(name):
+            zero_init = tf.constant_initializer(0.)
+            v_cell = tf.get_variable(
+                dtype=hparams.FLOATX,
+                shape=h_shp, name='cell',
+                trainable=False,
+                initializer=zero_init)
+            self.s_states_di[v_cell.name] = v_cell
+
+            init_range = 0.1 / sqrt(hdim)
+            op_gru = lambda _h, _x: ops.lyr_gru_flat(
+                'GRU', _x, _h[0],
+                axis=axis-1, op_linear=op_linear,
+                w_init=tf.random_uniform_initializer(
+                    -init_range, init_range, dtype=hparams.FLOATX))
+            s_cell_seq, = tf.scan(
+                op_gru, s_x, initializer=(v_cell,))
+        return s_cell_seq if t_axis == 0 else tf.transpose(s_cell_seq, perm)
+
     def save_params(self, filename, step=None):
         global g_sess
         save_dir = os.path.dirname(os.path.abspath(filename))

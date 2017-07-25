@@ -24,9 +24,9 @@ REG_SCALE = 1e-2  # regularization loss scale
 REG_TYPE = 'L2'  # regularization type
 
 # check "modules.py" to see available sub-modules
-SEPARATOR_TYPE = 'bilstm-v1'
+SEPARATOR_TYPE = 'bigru-v1'
 RECOGNIZER_TYPE = 'bilstm-ctc-v1'
-DISCRIMINATOR_TYPE = 'bilstm-3way-v1'
+DISCRIMINATOR_TYPE = 'bigru-3way-v1'
 OPTIMIZER_TYPE = 'adam'  # "sgd" or "adam"
 LR = 1e-5  # learn rate
 LR_DECAY = None

@@ -136,7 +136,7 @@ def lyr_gru_flat(
         op_linear: linear operation
 
     Returns:
-        s_cell_tp1
+        (s_cell_tp1,)
 
     Notes:
         The size of s_x along axis must be known
@@ -156,7 +156,7 @@ def lyr_gru_flat(
             s_inp2, hdim, axis=axis, w_init=w_init, b_init=b_init)
         s_cell_new = tf.tanh(s_cell_new)
         s_cell_tp1 = v_cell * s_igate + s_cell_new * (1.-s_igate)
-    return s_cell_tp1
+    return (s_cell_tp1,)
 
 
 def batch_snr(clear_signal, noisy_signal):
