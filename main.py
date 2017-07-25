@@ -512,17 +512,47 @@ class Model(object):
                     self.train_fetches, to_feed)[:2]
                 self.reset_state()
                 train_writer.add_summary(step_summary)
+                stdout.write(':')
+                stdout.flush()
+                _dict_add(cli_report, step_fetch)
+            _dict_mul(cli_report, 1. / (i_batch+1))
+            if not g_args.no_save_on_epoch:
+                if float('nan') in cli_report.values():
+                    if i_epoch:
+                        stdout.write('\nEpoch %d/%d got NAN values, restoring last checkpoint ... ')
+                        stdout.flush()
+                        i_epoch -= 1
+                        # FIXME: this path don't work windows
+                        self.load_params('saves/' + self.name + ('_e%d' % (i_epoch+1)))
+                        stdout.write('done')
+                        stdout.flush()
+                        continue
+                    else:
+                        stdout.write('\nRun into NAN during 1st epoch, exiting ...')
+                        sys.exit(-1)
+                self.save_params('saves/' + self.name + ('_e%d' % (i_epoch+1)))
+                stdout.write('S')
+            stdout.write('\nEpoch %d/%d %s\n' % (
+                i_epoch+1, n_epoch, _dict_format(cli_report)))
+            stdout.flush()
+            if g_args.no_test_on_epoch:
+                continue
+            cli_report = {}
+            for i_batch, data_pt in enumerate(dataset.epoch(
+                    'test',
+                    hparams.BATCH_SIZE * hparams.MAX_N_SIGNAL,
+                    shuffle=False)):
+                to_feed = dict(zip(self.train_feed_keys, data_pt))
+                step_summary, step_fetch = g_sess.run(
+                    self.test_fetches, to_feed)[:2]
+                self.reset_state()
+                train_writer.add_summary(step_summary)
                 stdout.write('.')
                 stdout.flush()
                 _dict_add(cli_report, step_fetch)
             _dict_mul(cli_report, 1. / (i_batch+1))
-            if g_args.save_on_epoch:
-                self.save_params(self.name, i_epoch+1)
-                stdout.write('S')
-            stdout.write('\nEpoch %d/%d %s' % (
+            stdout.write('\nTest  %d/%d %s\n' % (
                 i_epoch+1, n_epoch, _dict_format(cli_report)))
-            # TODO add validation set
-            stdout.write('\n')
             stdout.flush()
 
     def train_asr(self, n_epoch, dataset):
@@ -542,7 +572,7 @@ class Model(object):
                 stdout.write('.')
                 stdout.flush()
                 _dict_add(cli_report, step_fetch)
-            if g_args.save_on_epoch:
+            if not g_args.no_save_on_epoch:
                 self.save_params(self.name, i_epoch+1)
                 stdout.write('S')
             stdout.write('\nEpoch %d/%d %s' % (
@@ -591,6 +621,9 @@ class Model(object):
 def main():
     global g_args, g_model, g_dataset
     parser = argparse.ArgumentParser()
+    parser.add_argument('-n', '--name',
+        default='UnamedExperiment',
+        help='name of experiment, affects checkpoint saves')
     parser.add_argument('-m', '--mode',
         default='train', help='Mode, "train", "test", "demo" or "interactive"')
     parser.add_argument('-i', '--input-pfile',
@@ -599,8 +632,10 @@ def main():
         help='path to output model parameters file')
     parser.add_argument('-ne', '--num-epoch',
         type=int, default=10, help='number of training epoch')
-    parser.add_argument('--save-on-epoch',
-        action='store_true', help='saves parameter after each epoch')
+    parser.add_argument('--no-save-on-epoch',
+        action='store_false', help="don't save parameter after each epoch")
+    parser.add_argument('--no-test-on-epoch',
+        action='store_true', help="don't sweep test set after training epoch")
     parser.add_argument('-if', '--input-file',
         help='input WAV file for "demo" mode')
     g_args = parser.parse_args()
@@ -619,7 +654,7 @@ def main():
 
     stdout.write('Building model ... ')
     stdout.flush()
-    g_model = Model()
+    g_model = Model(name=g_args.name)
     g_model.build()
     stdout.write('done\n')
 
