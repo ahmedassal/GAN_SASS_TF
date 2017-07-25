@@ -403,7 +403,7 @@ class Model(object):
                     hparams.MAX_N_SIGNAL+1,
                     -1, hparams.FFT_SIZE]))
             # drop the one with lowest SNR (likely separated noise)
-            s_snr = tf.reduce_mean(tf.reduce_min(
+            s_snr = tf.reduce_mean(tf.reduce_max(
                 s_cross_snr, axis=-1))
 
         # ===============
