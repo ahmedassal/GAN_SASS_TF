@@ -7,19 +7,33 @@ The model currently incomplete, having performance issues, and doesn't perform t
 
 ## Dependencies
 
-See "dependencies" file in repo root.
+[python]
+- six
+- numpy, scipy, nltk
+- tensorflow 1.12+
+
+[TIMIT dataset]
+- install "sndfile-convert" utility
+    `sudo apt-get install sndfile-programs`
+
+[optional]
+- install warp-ctc for better GPU CTC performance
+    `git clone https://github/baidu-research/warp-ctc`
+    then follow instructions inside to install
 
 ## Prepare datasets
 
 ### toy dataset
 
-There is a "toy" dataset for debugging purposes. It's just pure white noise.
-In `app/hparams.py` file, set `DATASET = 'toy'` to use this dataset.
+There is a "toy dataset" for debugging purposes. It's just pure generated white noise.
+In `app/hparams.py` file, set `DATASET_TYPE = 'toy'` to use this dataset.
 
 ### TIMIT
 
  - Make sure to install `sndfile-tools` first (for `sndfile-convert` utility)
+ - Download the `TIMIT.zip` file under `app/datasets/TIMIT/`.
  - Under repo directory `app/datasets/TIMIT/`, run `install.sh`. You only need to run it for once.
+ - If you change hyperparameter `FFT_SIZE` or `CHARSET_SIZE`, you need to re-run install script.
  - In `app/hparams.py` file, set `DATASET = 'timit'` to use this dataset
 
 ## Quick Instructions
