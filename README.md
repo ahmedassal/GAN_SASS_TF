@@ -26,6 +26,7 @@ The model currently incomplete, having performance issues, and doesn't perform t
 ### toy dataset
 
 There is a "toy dataset" for debugging purposes. It's just pure generated white noise.
+
 In `app/hparams.py` file, set `DATASET_TYPE = 'toy'` to use this dataset.
 
 ### TIMIT
@@ -35,6 +36,7 @@ In `app/hparams.py` file, set `DATASET_TYPE = 'toy'` to use this dataset.
  - Under repo directory `app/datasets/TIMIT/`, run `install.sh`. You only need to run it for once.
  - If you change hyperparameter `FFT_SIZE` or `CHARSET_SIZE`, you need to re-run install script.
  - In `app/hparams.py` file, set `DATASET = 'timit'` to use this dataset
+
 
 ## Quick Instructions
 
@@ -80,21 +82,31 @@ SEPARATOR_TYPE = 'my_separator'
 
 `app/ops.py` defines some commonly used Tensorflow Ops.
 
+
 `app/ozers.py` defines optimizers.
+
 
 `app/utils.py` defines commonly used subroutines.
 
+
 `saves/` directory intends to store model parameters.
+
 Run `clear_saves.sh` to remove everything there. You can put them elsewhere though.
 
-`logs/` directory stores TF summaries. Start TensorBoard via `tensorboard --logdir=logs/` to visualize them.
+
+`logs/` directory stores TF summaries.
+
+Start TensorBoard via `tensorboard --logdir=logs/` to visualize them.
+
+
 `asr_logs/` directory stores TF summaries for speech recgonizer.
 
-### Coding style
+## Coding style
 
 This codebase mostly follow PEP8, but there are a few exceptions.
 
 For symbolics:
-    - `s_var` means a placeholder or **s**ymbolic element in a graph.
-    - `sS_var` means it's also **s**parse.
-    - `v_var` means a tensor variable with **v**alue, typically parameter.
+
+- `s_var` means a placeholder or **s**ymbolic element in a graph.
+- `sS_var` means it's also **s**parse.
+- `v_var` means a tensor variable with **v**alue, typically parameter.
