@@ -509,7 +509,7 @@ class Model(object):
                 ae_loss=s_autoencoder_loss,
                 SNR=s_snr)]
 
-        self.infer_feed_keys = [s_mixed_signals]
+        self.infer_feed_keys = [s_mixed_signals, s_dropout_keep]
         if hparams.USE_ASR:
             self.infer_fetches = dict(
                 signals=s_separated_signals,

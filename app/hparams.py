@@ -7,10 +7,14 @@ hyperparameters
 #      or consider use json file to store hyperparams
 BATCH_SIZE = 8  # minibatch size
 MAX_N_SIGNAL = 3
-FFT_SIZE = 256  # width of spectrogram
-CHARSET_SIZE = 27  # size of character set, excluding "blank" character
 
-USE_ASR = False  # whether to integrate speech recognizer into GAN training
+# width of spectrogram
+# redo dataset preprocessing if you change this
+FFT_SIZE = 256
+
+# size of character set, excluding "blank" character
+# redo dataset preprocessing if you change this
+CHARSET_SIZE = 27
 
 FLOATX = 'float32'  # default type for float
 INTX = 'int32'  # defualt type for int
@@ -18,15 +22,14 @@ INTX = 'int32'  # defualt type for int
 RELU_LEAKAGE = 0.3  # how leaky relu is, 0 -> relu, 1 -> linear
 EPS = 1e-7  # to prevent sqrt() log() etc cause NaN
 DROPOUT_KEEP_PROB = 0.8  # probability to keep in dropout layer
-assert isinstance(DROPOUT_KEEP_PROB, float)
-assert 0. < DROPOUT_KEEP_PROB <= 1.
 REG_SCALE = 1e-2  # regularization loss scale
 REG_TYPE = 'L2'  # regularization type
 
 # check "modules.py" to see available sub-modules
-SEPARATOR_TYPE = 'bigru-v1'
+USE_ASR = False  # whether to integrate speech recognizer into GAN training
+SEPARATOR_TYPE = 'bilstm-v1'
 RECOGNIZER_TYPE = 'bilstm-ctc-v1'
-DISCRIMINATOR_TYPE = 'bigru-3way-v1'
+DISCRIMINATOR_TYPE = 'bilstm-3way-v1'
 OPTIMIZER_TYPE = 'adam'  # "sgd" or "adam"
 LR = 1e-5  # learn rate
 LR_DECAY = None
@@ -46,6 +49,10 @@ ASR_SUMMARY_DIR = './asr_logs'
 CLS_REAL_SIGNAL = 0
 CLS_REAL_NOISE = 1
 CLS_FAKE_SIGNAL = 2
+
+assert isinstance(DROPOUT_KEEP_PROB, float)
+assert 0. < DROPOUT_KEEP_PROB <= 1.
+assert isinstance(LR, float) and LR >= 0.
 
 import tensorflow as tf
 
